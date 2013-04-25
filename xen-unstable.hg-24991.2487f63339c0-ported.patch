@@ -1,0 +1,88 @@
+
+# HG changeset patch
+# User Andrew Cooper <andrew.cooper3@citrix.com>
+# Date 1331198607 0
+# Node ID 2487f63339c00a91cf80c1a4598c10fdcaac0464
+# Parent 64727b69f2cc2fda4915b4520dc148990142b9f2
+NMI: Command line parameter for watchdog timeout
+
+Introduce a command parameter to set the watchtog timeout.  Manually
+specifying "watchdog_timeout=<seconds>" on the command line will also
+turn the watchdog on.  For consistency, move opt_watchdog into nmi.c
+along with opt_watchdog_timeout.
+
+Signed-off-by: Andrew Cooper <andrew.cooper3@citrix.com>
+Committed-by: Keir Fraser <keir@xen.org>
+
+diff -r 64727b69f2cc xen/arch/x86/nmi.c
+--- a/xen/arch/x86/nmi.c
++++ b/xen/arch/x86/nmi.c
+@@ -40,6 +40,19 @@ static unsigned int nmi_p4_cccr_val;
+ static DEFINE_PER_CPU(struct timer, nmi_timer);
+ static DEFINE_PER_CPU(unsigned int, nmi_timer_ticks);
+ 
++/* opt_watchdog: If true, run a watchdog NMI on each processor. */
++bool_t __initdata opt_watchdog = 0;
++boolean_param("watchdog", opt_watchdog);
++
++/* opt_watchdog_timeout: Number of seconds to wait before panic. */
++static unsigned int opt_watchdog_timeout = 5;
++static void parse_watchdog_timeout(char * s)
++{
++    opt_watchdog_timeout = simple_strtoull(s, NULL, 0);
++    opt_watchdog = !!opt_watchdog_timeout;
++}
++custom_param("watchdog_timeout", parse_watchdog_timeout);
++
+ /*
+  * lapic_nmi_owner tracks the ownership of the lapic NMI hardware:
+  * - it may be reserved by some other driver, or not
+@@ -423,11 +436,11 @@ void nmi_watchdog_tick(struct cpu_user_r
+          !atomic_read(&watchdog_disable_count) )
+     {
+         /*
+-         * Ayiee, looks like this CPU is stuck ... wait a few IRQs (5 seconds) 
++         * Ayiee, looks like this CPU is stuck ... wait for the timeout
+          * before doing the oops ...
+          */
+         this_cpu(alert_counter)++;
+-        if ( this_cpu(alert_counter) == 5*nmi_hz )
++        if ( this_cpu(alert_counter) == opt_watchdog_timeout*nmi_hz )
+         {
+             console_force_unlock();
+             printk("Watchdog timer detects that CPU%d is stuck!\n",
+diff -r 64727b69f2cc xen/arch/x86/setup.c
+--- a/xen/arch/x86/setup.c
++++ b/xen/arch/x86/setup.c
+@@ -44,6 +44,7 @@
+ #include <asm/mach-generic/mach_apic.h> /* for generic_apic_probe */
+ #include <asm/setup.h>
+ #include <xen/cpu.h>
++#include <asm/nmi.h>
+ 
+ extern u16 boot_edid_caps;
+ extern u8 boot_edid_info[128];
+@@ -57,10 +58,6 @@ boolean_param("nosmp", opt_nosmp);
+ static unsigned int __initdata max_cpus;
+ integer_param("maxcpus", max_cpus);
+ 
+-/* opt_watchdog: If true, run a watchdog NMI on each processor. */
+-static bool_t __initdata opt_watchdog;
+-boolean_param("watchdog", opt_watchdog);
+-
+ /* smep: Enable/disable Supervisor Mode Execution Protection (default on). */
+ static bool_t __initdata disable_smep;
+ invbool_param("smep", disable_smep);
+diff -r 64727b69f2cc xen/include/asm-x86/nmi.h
+--- a/xen/include/asm-x86/nmi.h
++++ b/xen/include/asm-x86/nmi.h
+@@ -5,6 +5,9 @@
+ #include <public/nmi.h>
+ 
+ struct cpu_user_regs;
++
++/* Watchdog boolean from the command line */
++extern bool_t opt_watchdog;
+  
+ typedef int (*nmi_callback_t)(struct cpu_user_regs *regs, int cpu);
+  

@@ -1,0 +1,26 @@
+
+# HG changeset patch
+# User Andrew Cooper <andrew.cooper3@citrix.com>
+# Date 1331911465 0
+# Node ID 4e1d091d10d83130842170cd61f1194e5459f2aa
+# Parent  46bf3ab42baf922bdd43d8cbe672ae1b18e31ed9
+kexec: Fix printing of paddr_t in 32bit mode.
+
+Signed-off-by: Andrew Cooper <andrew.cooper3@citrix.com>
+Committed-by: Keir Fraser <keir@xen.org>
+
+diff -r 46bf3ab42baf -r 4e1d091d10d8 xen/common/kexec.c
+--- a/xen/common/kexec.c	Fri Mar 16 11:35:06 2012 +0100
++++ b/xen/common/kexec.c	Fri Mar 16 15:24:25 2012 +0000
+@@ -207,8 +207,8 @@
+     if ( (addr = parse_size_and_unit(str, NULL)) )
+         crashinfo_maxaddr = addr;
+     else
+-        printk("Unable to parse crashinfo_maxaddr. Defaulting to %p\n",
+-               (void*)crashinfo_maxaddr);
++        printk("Unable to parse crashinfo_maxaddr. Defaulting to %"PRIpaddr"\n",
++               crashinfo_maxaddr);
+ }
+ custom_param("crashinfo_maxaddr", parse_crashinfo_maxaddr);
+ 
+

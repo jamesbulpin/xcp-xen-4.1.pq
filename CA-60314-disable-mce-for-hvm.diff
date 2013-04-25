@@ -1,0 +1,59 @@
+Disable MCE for HVM.
+
+The MCE capabilities are not properly "leveled" on heterogenous
+pools.  Since they are not really necessary, just disable them.
+(This is reverting to Coweley behavior.)
+
+A proper fix would be to properly virtualize them in a way that
+is saved in the HVM save record and restored on new hardware.
+
+diff -r 91e71adf5c36 xen/arch/x86/hvm/hvm.c
+--- a/xen/arch/x86/hvm/hvm.c	Thu Jul 07 11:25:28 2011 +0100
++++ b/xen/arch/x86/hvm/hvm.c	Fri Jul 08 15:59:40 2011 +0100
+@@ -2353,6 +2353,18 @@ int hvm_msr_read_intercept(unsigned int 
+         *msr_content = vcpu_vlapic(v)->hw.apic_base_msr;
+         break;
+ 
++    case MSR_IA32_MCG_CAP:
++    case MSR_IA32_MCG_STATUS:
++    case MSR_IA32_MC0_STATUS:
++    case MSR_IA32_MC1_STATUS:
++    case MSR_IA32_MC2_STATUS:
++    case MSR_IA32_MC3_STATUS:
++    case MSR_IA32_MC4_STATUS:
++    case MSR_IA32_MC5_STATUS:
++        /* No point in letting the guest see real MCEs */
++        *msr_content = 0;
++        break;
++
+     case MSR_IA32_APICBASE_MSR ... MSR_IA32_APICBASE_MSR + 0x3ff:
+         if ( hvm_x2apic_msr_read(v, msr, msr_content) )
+             goto gp_fault;
+@@ -2413,12 +2425,7 @@ int hvm_msr_read_intercept(unsigned int 
+          break;
+ 
+     default:
+-        if ( (ret = vmce_rdmsr(msr, msr_content)) < 0 )
+-            goto gp_fault;
+-        /* If ret == 0 then this is not an MCE MSR, see other MSRs. */
+-        ret = ((ret == 0)
+-               ? hvm_funcs.msr_read_intercept(msr, msr_content)
+-               : X86EMUL_OKAY);
++        ret = hvm_funcs.msr_read_intercept(msr, msr_content);
+         break;
+     }
+ 
+@@ -2529,12 +2536,7 @@ int hvm_msr_write_intercept(unsigned int
+         break;
+ 
+     default:
+-        if ( (ret = vmce_wrmsr(msr, msr_content)) < 0 )
+-            goto gp_fault;
+-        /* If ret == 0 then this is not an MCE MSR, see other MSRs. */
+-        ret = ((ret == 0)
+-               ? hvm_funcs.msr_write_intercept(msr, msr_content)
+-               : X86EMUL_OKAY);
++        ret = hvm_funcs.msr_write_intercept(msr, msr_content);
+         break;
+     }
+ 

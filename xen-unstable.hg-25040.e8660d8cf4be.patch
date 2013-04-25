@@ -1,0 +1,26 @@
+
+# HG changeset patch
+# User Andrew Cooper <andrew.cooper3@citrix.com>
+# Date 1331723420 0
+# Node ID e8660d8cf4be332e53cf6e2765f21804e3bfe28e
+# Parent  d7e4b0725e978368253ab2ae42a0d13b3ab8d9f1
+xl: display max_cpu_ids for xl info
+
+Expose `max_cpu_id' in stdout from `xl info'
+
+Signed-off-by: Andrew Cooper <andrew.cooper3@citrix.com>
+Acked-by: Ian Jackson <ian.jackson@eu.citrix.com>
+Committed-by: Ian Jackson <ian.jackson@eu.citrix.com>
+
+diff -r d7e4b0725e97 -r e8660d8cf4be tools/libxl/xl_cmdimpl.c
+--- a/tools/libxl/xl_cmdimpl.c	Wed Mar 14 11:03:37 2012 +0000
++++ b/tools/libxl/xl_cmdimpl.c	Wed Mar 14 11:10:20 2012 +0000
+@@ -3734,6 +3734,7 @@
+     }
+ 
+     printf("nr_cpus                : %d\n", info.nr_cpus);
++    printf("max_cpu_id             : %d\n", info.max_cpu_id);
+     printf("nr_nodes               : %d\n", info.nr_nodes);
+     printf("cores_per_socket       : %d\n", info.cores_per_socket);
+     printf("threads_per_core       : %d\n", info.threads_per_core);
+

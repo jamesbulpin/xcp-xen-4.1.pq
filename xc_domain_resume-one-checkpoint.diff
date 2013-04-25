@@ -1,0 +1,16 @@
+CA-55274: Assume only one checkpoint unless told otherwise.
+
+diff -r 280b89d33a94 tools/libxc/xc_domain_restore.c
+--- a/tools/libxc/xc_domain_restore.c	Mon Jul 25 16:48:38 2011 +0100
++++ b/tools/libxc/xc_domain_restore.c	Mon Jul 25 16:49:51 2011 +0100
+@@ -1105,6 +1105,10 @@ int xc_domain_restore(xc_interface *xch,
+ 
+     superpages = !!hvm;
+ 
++    /* Assume first checkpoint is last, unless we get a record
++     * at the head saying otherwise */
++    ctx->last_checkpoint = 1;
++
+     pagebuf_init(&pagebuf);
+     memset(&tailbuf, 0, sizeof(tailbuf));
+     tailbuf.ishvm = hvm;

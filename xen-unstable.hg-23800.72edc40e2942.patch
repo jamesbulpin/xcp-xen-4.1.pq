@@ -1,0 +1,22 @@
+# HG changeset patch
+# User Keir Fraser <keir@xen.org>
+# Date 1314800089 -3600
+# Node ID 72edc40e2942a3cf0ee8e0d3a330d2e5c2bdfb53
+# Parent  ac9aa65050e9abc8f1c12c8603acf3b99e22cddc
+x86-64: Fix off-by-one error in __addr_ok() macro
+
+Signed-off-by: Laszlo Ersek <lersek@redhat.com>
+Signed-off-by: Keir Fraser <keir@xen.org>
+
+diff --git a/xen/include/asm-x86/x86_64/uaccess.h b/xen/include/asm-x86/x86_64/uaccess.h
+--- a/xen/include/asm-x86/x86_64/uaccess.h
++++ b/xen/include/asm-x86/x86_64/uaccess.h
+@@ -34,7 +34,7 @@ extern void *xlat_malloc(unsigned long *
+  * non-canonical address (and thus fault) before ever reaching VIRT_START.
+  */
+ #define __addr_ok(addr) \
+-    (((unsigned long)(addr) < (1UL<<48)) || \
++    (((unsigned long)(addr) < (1UL<<47)) || \
+      ((unsigned long)(addr) >= HYPERVISOR_VIRT_END))
+ 
+ #define access_ok(addr, size) \

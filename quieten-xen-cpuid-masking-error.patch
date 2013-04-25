@@ -1,0 +1,18 @@
+# HG changeset patch
+# Parent 8ce9a2877c74e3a46bd387f22cb5f77f216dbad1
+Now that the xsave CPUID mask is always set to zero (to workaround a missing XAPI feature in Tampa), Xen complains if that CPUID mask register cannot be set, which occurs on all Intel processors older than sandy bridge.
+
+Reporting errors on masking features which don't exist is not necessary and so this patch removes the printk entirely.
+
+diff -r 8ce9a2877c74 xen/arch/x86/cpu/intel.c
+--- a/xen/arch/x86/cpu/intel.c
++++ b/xen/arch/x86/cpu/intel.c
+@@ -124,8 +124,6 @@ static void __devinit set_cpuidmask(cons
+ 	}
+ 
+ error:
+-	printk(XENLOG_ERR "Cannot set CPU %sfeature mask on CPU#%d\n",
+-	       extra, smp_processor_id());
+ out:
+     cpuid(0x1, &eax, &ebx, &c->masked_base_ecx, &c->masked_base_edx);
+     cpuid(0x80000001, &eax, &ebx, &c->masked_ext_ecx, &c->masked_ext_edx);

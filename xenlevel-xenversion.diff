@@ -1,0 +1,16 @@
+# HG changeset patch
+# Parent 7770a90476f7b244b5733c48c731feb9f612eb73
+diff --git a/xen/Makefile b/xen/Makefile
+--- a/xen/Makefile
++++ b/xen/Makefile
+@@ -129,6 +129,10 @@ define set_exuberant_flags
+ 	    --extra=+f --c-kinds=+px") || true` 
+ endef
+ 
++.PHONY: xenversion
++xenversion:
++	@echo $(XEN_FULLVERSION)
++
+ .PHONY: _TAGS
+ _TAGS: 
+ 	set -e; rm -f TAGS; \

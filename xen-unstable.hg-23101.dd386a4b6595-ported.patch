@@ -1,0 +1,61 @@
+
+# HG changeset patch
+# User Jan Beulich <jbeulich@novell.com>
+# Date 1301131804 0
+# Node ID dd386a4b6595e1ee63acb7220f8884b7a8532b99
+# Parent 9df20ef390995cc5b78f13c7d5959964f60fae96
+x86: fix tboot after c/s 23013:65d26504e843 (ACPI cleanup)
+
+TXT code calls acpi_parse_dmar() with a transient copy of the DMAR
+table, and hence storing the pointer for later reference was wrong.
+Obtain the pointer in acpi_dmar_init() instead.
+
+Signed-off-by: Jan Beulich <jbeulich@novell.com>
+Tested-by: Gang Wei <gang.wei@intel.com>
+
+diff -r 9df20ef39099 xen/drivers/passthrough/vtd/dmar.c
+--- a/xen/drivers/passthrough/vtd/dmar.c
++++ b/xen/drivers/passthrough/vtd/dmar.c
+@@ -46,6 +46,7 @@ LIST_HEAD(acpi_rmrr_units);
+ LIST_HEAD(acpi_atsr_units);
+ LIST_HEAD(acpi_rhsa_units);
+ 
++static struct acpi_table_header *__read_mostly dmar_table;
+ static u64 igd_drhd_address;
+ u8 dmar_host_address_width;
+ 
+@@ -771,12 +772,6 @@ out:
+ 
+ int __init acpi_dmar_init(void)
+ {
+-    return parse_dmar_table(acpi_parse_dmar);
+-}
+-
+-static struct acpi_table_header *get_dmar(void)
+-{
+-    struct acpi_table_header *dmar_table = NULL;
+     unsigned long flags;
+ 
+     /* Disabling IRQs avoids cross-CPU TLB flush in map_pages_to_xen(). */
+@@ -784,12 +779,11 @@ static struct acpi_table_header *get_dma
+     acpi_get_table(ACPI_SIG_DMAR, 0, &dmar_table);
+     local_irq_restore(flags);
+ 
+-    return dmar_table;
++    return parse_dmar_table(acpi_parse_dmar);
+ }
+ 
+ void acpi_dmar_reinstate(void)
+ {
+-    struct acpi_table_header *dmar_table = get_dmar();
+     if ( dmar_table == NULL )
+         return;
+     dmar_table->signature[0] = 'D';
+@@ -798,7 +792,6 @@ void acpi_dmar_reinstate(void)
+ 
+ void acpi_dmar_zap(void)
+ {
+-    struct acpi_table_header *dmar_table = get_dmar();
+     if ( dmar_table == NULL )
+         return;
+     dmar_table->signature[0] = 'X';

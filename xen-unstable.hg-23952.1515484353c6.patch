@@ -1,0 +1,78 @@
+
+# HG changeset patch
+# User Jan Beulich <jbeulich@suse.com>
+# Date 1318493368 -7200
+# Node ID 1515484353c602c41760ff5e110f7490174537f4
+# Parent  8c1e7830112f5bc57c3539c3c1e7eb3ca3539f1f
+VMX: extend last branch MSR info to cover newer CPU models
+
+There are still a couple of family 6 models missing here: 37, 44, 46,
+and 47 (according to SDM doc changes May 2011); presumably they would
+all go into the Nehalem/Sandy Bridge group. Intel?
+
+Signed-off-by: Jan Beulich <jbeulich@suse.com>
+Acked-by: Haitao Shan <maillists.shan@gmail.com>
+
+diff -r 8c1e7830112f -r 1515484353c6 xen/arch/x86/hvm/vmx/vmx.c
+--- a/xen/arch/x86/hvm/vmx/vmx.c	Thu Oct 13 10:03:43 2011 +0200
++++ b/xen/arch/x86/hvm/vmx/vmx.c	Thu Oct 13 10:09:28 2011 +0200
+@@ -1693,6 +1693,20 @@ static const struct lbr_info {
+     { MSR_C2_LASTBRANCH_0_FROM_IP,  NUM_MSR_C2_LASTBRANCH_FROM_TO },
+     { MSR_C2_LASTBRANCH_0_TO_IP,    NUM_MSR_C2_LASTBRANCH_FROM_TO },
+     { 0, 0 }
++}, nh_lbr[] = {
++    { MSR_IA32_LASTINTFROMIP,       1 },
++    { MSR_IA32_LASTINTTOIP,         1 },
++    { MSR_C2_LASTBRANCH_TOS,        1 },
++    { MSR_P4_LASTBRANCH_0_FROM_LIP, NUM_MSR_P4_LASTBRANCH_FROM_TO },
++    { MSR_P4_LASTBRANCH_0_TO_LIP,   NUM_MSR_P4_LASTBRANCH_FROM_TO },
++    { 0, 0 }
++}, at_lbr[] = {
++    { MSR_IA32_LASTINTFROMIP,       1 },
++    { MSR_IA32_LASTINTTOIP,         1 },
++    { MSR_C2_LASTBRANCH_TOS,        1 },
++    { MSR_C2_LASTBRANCH_0_FROM_IP,  NUM_MSR_ATOM_LASTBRANCH_FROM_TO },
++    { MSR_C2_LASTBRANCH_0_TO_IP,    NUM_MSR_ATOM_LASTBRANCH_FROM_TO },
++    { 0, 0 }
+ #ifdef __i386__
+ }, pm_lbr[] = {
+     { MSR_IA32_LASTINTFROMIP,       1 },
+@@ -1720,8 +1734,20 @@ static const struct lbr_info *last_branc
+ #endif
+         /* Core2 Duo */
+         case 15:
++        /* Enhanced Core */
++        case 23:
+             return c2_lbr;
+             break;
++        /* Nehalem */
++        case 26: case 30: case 31: case 46:
++        /* Sandy Bridge */
++        case 42: case 45:
++            return nh_lbr;
++            break;
++        /* Atom */
++        case 28:
++            return at_lbr;
++            break;
+         }
+         break;
+ 
+diff -r 8c1e7830112f -r 1515484353c6 xen/include/asm-x86/msr-index.h
+--- a/xen/include/asm-x86/msr-index.h	Thu Oct 13 10:03:43 2011 +0200
++++ b/xen/include/asm-x86/msr-index.h	Thu Oct 13 10:09:28 2011 +0200
+@@ -472,11 +472,12 @@
+ #define MSR_PM_LASTBRANCH_0		0x00000040
+ #define NUM_MSR_PM_LASTBRANCH		8
+ 
+-/* Core 2 last-branch recording */
++/* Core 2 and Atom last-branch recording */
+ #define MSR_C2_LASTBRANCH_TOS		0x000001c9
+ #define MSR_C2_LASTBRANCH_0_FROM_IP	0x00000040
+ #define MSR_C2_LASTBRANCH_0_TO_IP	0x00000060
+ #define NUM_MSR_C2_LASTBRANCH_FROM_TO	4
++#define NUM_MSR_ATOM_LASTBRANCH_FROM_TO	8
+ 
+ /* Intel Core-based CPU performance counters */
+ #define MSR_CORE_PERF_FIXED_CTR0	0x00000309
+

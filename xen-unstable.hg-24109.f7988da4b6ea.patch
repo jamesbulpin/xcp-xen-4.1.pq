@@ -1,0 +1,24 @@
+
+# HG changeset patch
+# User Jan Beulich <jbeulich@suse.com>
+# Date 1320831465 -3600
+# Node ID f7988da4b6ea6cfed02e9d730f18e640d95c3015
+# Parent  33215c3868a181c17dda1d0629d767d5b9c8a0f0
+VMX: extend last branch MSR info to cover newer CPU models #2
+
+Signed-off-by: Jan Beulich <jbeulich@suse.com>
+Acked-by: "Shan, Haitao" <haitao.shan@intel.com>
+
+diff -r 33215c3868a1 -r f7988da4b6ea xen/arch/x86/hvm/vmx/vmx.c
+--- a/xen/arch/x86/hvm/vmx/vmx.c	Wed Nov 09 10:36:20 2011 +0100
++++ b/xen/arch/x86/hvm/vmx/vmx.c	Wed Nov 09 10:37:45 2011 +0100
+@@ -1740,6 +1740,8 @@ static const struct lbr_info *last_branc
+             break;
+         /* Nehalem */
+         case 26: case 30: case 31: case 46:
++        /* Westmere */
++        case 37: case 44: case 47:
+         /* Sandy Bridge */
+         case 42: case 45:
+             return nh_lbr;
+

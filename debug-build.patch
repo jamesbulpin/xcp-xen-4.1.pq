@@ -1,0 +1,27 @@
+diff -r 859966990aac mk/xen-4.1.spec.in
+--- a/mk/xen-4.1.spec.in
++++ b/mk/xen-4.1.spec.in
+@@ -73,9 +73,9 @@ for building addon tools.
+ %patch0 -p1 -b ~development
+ 
+ %build
+-%{__make} %{COMMON_OPTIONS} %{HVSOR_OPTIONS} XEN_CHANGESET="@XEN_CHANGESET@" xen
+-%{__make} %{COMMON_OPTIONS} %{TOOLS_OPTIONS} tools
+-%{__make} %{COMMON_OPTIONS} %{HVSOR_OPTIONS} -C xen MAP
++%{__make} %{COMMON_OPTIONS} %{HVSOR_OPTIONS} XEN_CHANGESET="@XEN_CHANGESET@" xen debug=y
++%{__make} %{COMMON_OPTIONS} %{TOOLS_OPTIONS} tools debug=y
++%{__make} %{COMMON_OPTIONS} %{HVSOR_OPTIONS} -C xen MAP debug=y
+ 
+ # Set GDB_MIRROR to something invalid so we fail the build instead of
+ # downloading.
+@@ -84,8 +84,8 @@ for building addon tools.
+ %install
+ rm -rf %{buildroot}
+ 
+-%{__make} %{COMMON_OPTIONS} %{HVSOR_OPTIONS} install-xen
+-%{__make} %{COMMON_OPTIONS} %{TOOLS_OPTIONS} install-tools
++%{__make} %{COMMON_OPTIONS} %{HVSOR_OPTIONS} install-xen debug=y
++%{__make} %{COMMON_OPTIONS} %{TOOLS_OPTIONS} install-tools debug=y
+ 
+ mkdir -p $RPM_BUILD_ROOT/%{_docdir}/%{name}/
+ for name in COPYING README; do 

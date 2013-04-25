@@ -1,0 +1,420 @@
+
+# HG changeset patch
+# User Daniel De Graaf <dgdegra@tycho.nsa.gov>
+# Date 1317925733 -3600
+# Node ID aea2b06769f3c7659ee1ee3601bb9bc01781665e
+# Parent 4aecc7fe47998feee9510f9b6f4eab483217444f
+libxc: add xc_gnttab_map_grant_ref_notify
+
+Normally, when a userspace process mapping a grant crashes, the domain
+providing the reference receives no indication that its peer has
+crashed, possibly leading to unexpected freezes or timeouts. This
+function provides a notification of the unmap by signalling an event
+channel and/or clearing a specific byte in the page.
+
+This also unifies the 3 very similar grant-mapping osdep interfaces into
+a single function instead of introducing yet another minor variation.
+
+Signed-off-by: Daniel De Graaf <dgdegra@tycho.nsa.gov>
+Committed-by: Ian Jackson <ian.jackson@eu.citrix.com>
+Acked-by: Ian Campbell <ian.campbell@citrix.com>
+
+diff -r 4aecc7fe4799 tools/include/xen-sys/Linux/gntdev.h
+--- a/tools/include/xen-sys/Linux/gntdev.h	Mon Sep 26 22:10:21 2011 +0100
++++ b/tools/include/xen-sys/Linux/gntdev.h	Mon Mar 12 15:01:34 2012 +0000
+@@ -66,7 +66,7 @@ struct ioctl_gntdev_map_grant_ref {
+  * before this ioctl is called, or an error will result.
+  */
+ #define IOCTL_GNTDEV_UNMAP_GRANT_REF \
+-_IOC(_IOC_NONE, 'G', 1, sizeof(struct ioctl_gntdev_unmap_grant_ref))       
++_IOC(_IOC_NONE, 'G', 1, sizeof(struct ioctl_gntdev_unmap_grant_ref))
+ struct ioctl_gntdev_unmap_grant_ref {
+ 	/* IN parameters */
+ 	/* The offset was returned by the corresponding map operation. */
+@@ -116,4 +116,35 @@ struct ioctl_gntdev_set_max_grants {
+ 	uint32_t count;
+ };
+ 
++/*
++ * Sets up an unmap notification within the page, so that the other side can do
++ * cleanup if this side crashes. Required to implement cross-domain robust
++ * mutexes or close notification on communication channels.
++ *
++ * Each mapped page only supports one notification; multiple calls referring to
++ * the same page overwrite the previous notification. You must clear the
++ * notification prior to the IOCTL_GNTALLOC_DEALLOC_GREF if you do not want it
++ * to occur.
++ */
++#define IOCTL_GNTDEV_SET_UNMAP_NOTIFY \
++_IOC(_IOC_NONE, 'G', 7, sizeof(struct ioctl_gntdev_unmap_notify))
++struct ioctl_gntdev_unmap_notify {
++	/* IN parameters */
++	/* Offset in the file descriptor for a byte within the page. This offset
++	 * is the result of the IOCTL_GNTDEV_MAP_GRANT_REF and is the same as
++	 * is used with mmap(). If using UNMAP_NOTIFY_CLEAR_BYTE, this is the byte
++	 * within the page to be cleared.
++	 */
++	uint64_t index;
++	/* Action(s) to take on unmap */
++	uint32_t action;
++	/* Event channel to notify */
++	uint32_t event_channel_port;
++};
++
++/* Clear (set to zero) the byte specified by index */
++#define UNMAP_NOTIFY_CLEAR_BYTE 0x1
++/* Send an interrupt on the indicated event channel */
++#define UNMAP_NOTIFY_SEND_EVENT 0x2
++
+ #endif /* __LINUX_PUBLIC_GNTDEV_H__ */
+diff -r 4aecc7fe4799 tools/libxc/xc_gnttab.c
+--- a/tools/libxc/xc_gnttab.c	Mon Sep 26 22:10:21 2011 +0100
++++ b/tools/libxc/xc_gnttab.c	Mon Mar 12 15:01:34 2012 +0000
+@@ -18,6 +18,7 @@
+  */
+ 
+ #include "xc_private.h"
++#include <errno.h>
+ 
+ int xc_gnttab_op(xc_interface *xch, int cmd, void * op, int op_size, int count)
+ {
+@@ -150,8 +151,8 @@ void *xc_gnttab_map_grant_ref(xc_gnttab 
+                               uint32_t ref,
+                               int prot)
+ {
+-	return xcg->ops->u.gnttab.map_grant_ref(xcg, xcg->ops_handle,
+-						domid, ref, prot);
++	return xcg->ops->u.gnttab.grant_map(xcg, xcg->ops_handle, 1, 0, prot,
++	                                    &domid, &ref, -1, -1);
+ }
+ 
+ void *xc_gnttab_map_grant_refs(xc_gnttab *xcg,
+@@ -160,8 +161,8 @@ void *xc_gnttab_map_grant_refs(xc_gnttab
+                                uint32_t *refs,
+                                int prot)
+ {
+-	return xcg->ops->u.gnttab.map_grant_refs(xcg, xcg->ops_handle,
+-						 count, domids, refs, prot);
++	return xcg->ops->u.gnttab.grant_map(xcg, xcg->ops_handle, count, 0,
++	                                    prot, domids, refs, -1, -1);
+ }
+ 
+ void *xc_gnttab_map_domain_grant_refs(xc_gnttab *xcg,
+@@ -170,10 +171,23 @@ void *xc_gnttab_map_domain_grant_refs(xc
+                                       uint32_t *refs,
+                                       int prot)
+ {
+-	return xcg->ops->u.gnttab.map_domain_grant_refs(xcg, xcg->ops_handle,
+-							count, domid, refs, prot);
++	return xcg->ops->u.gnttab.grant_map(xcg, xcg->ops_handle, count,
++	                                    XC_GRANT_MAP_SINGLE_DOMAIN,
++	                                    prot, &domid, refs, -1, -1);
+ }
+ 
++void *xc_gnttab_map_grant_ref_notify(xc_gnttab *xcg,
++                                     uint32_t domid,
++                                     uint32_t ref,
++                                     int prot,
++                                     uint32_t notify_offset,
++                                     evtchn_port_t notify_port)
++{
++	return xcg->ops->u.gnttab.grant_map(xcg, xcg->ops_handle, 1, 0, prot,
++	                              &domid, &ref, notify_offset, notify_port);
++}
++
++
+ int xc_gnttab_munmap(xc_gnttab *xcg,
+                      void *start_address,
+                      uint32_t count)
+diff -r 4aecc7fe4799 tools/libxc/xc_linux_osdep.c
+--- a/tools/libxc/xc_linux_osdep.c	Mon Sep 26 22:10:21 2011 +0100
++++ b/tools/libxc/xc_linux_osdep.c	Mon Mar 12 15:01:34 2012 +0000
+@@ -471,56 +471,21 @@ static int linux_gnttab_close(xc_gnttab 
+     return close(fd);
+ }
+ 
+-static void *linux_gnttab_map_grant_ref(xc_gnttab *xch, xc_osdep_handle h,
+-                                        uint32_t domid, uint32_t ref, int prot)
+-{
+-    int fd = (int)h;
+-    struct ioctl_gntdev_map_grant_ref map;
+-    void *addr;
+-
+-    map.count = 1;
+-    map.refs[0].domid = domid;
+-    map.refs[0].ref = ref;
+-
+-    if ( ioctl(fd, IOCTL_GNTDEV_MAP_GRANT_REF, &map) ) {
+-        PERROR("xc_gnttab_map_grant_ref: ioctl MAP_GRANT_REF failed");
+-        return NULL;
+-    }
+-
+-mmap_again:    
+-    addr = mmap(NULL, XC_PAGE_SIZE, prot, MAP_SHARED, fd, map.index);
+-    if ( addr == MAP_FAILED )
+-    {
+-        int saved_errno = errno;
+-        struct ioctl_gntdev_unmap_grant_ref unmap_grant;
+-
+-        if(saved_errno == EAGAIN)
+-        {
+-            usleep(1000);
+-            goto mmap_again;
+-        }
+-         /* Unmap the driver slots used to store the grant information. */
+-        PERROR("xc_gnttab_map_grant_ref: mmap failed");
+-        unmap_grant.index = map.index;
+-        unmap_grant.count = 1;
+-        ioctl(fd, IOCTL_GNTDEV_UNMAP_GRANT_REF, &unmap_grant);
+-        errno = saved_errno;
+-        return NULL;
+-    }
+-
+-    return addr;
+-}
+-
+-static void *do_gnttab_map_grant_refs(xc_gnttab *xch, xc_osdep_handle h,
+-                                      uint32_t count,
+-                                      uint32_t *domids, int domids_stride,
+-                                      uint32_t *refs, int prot)
++static void *linux_gnttab_grant_map(xc_gnttab *xch, xc_osdep_handle h,
++                                    uint32_t count, int flags, int prot,
++                                    uint32_t *domids, uint32_t *refs,
++                                    uint32_t notify_offset,
++                                    evtchn_port_t notify_port)
+ {
+     int fd = (int)h;
+     struct ioctl_gntdev_map_grant_ref *map;
+     void *addr = NULL;
++    int domids_stride = 1;
+     int i;
+ 
++    if (flags & XC_GRANT_MAP_SINGLE_DOMAIN)
++        domids_stride = 0;
++
+     map = alloca(sizeof(*map) +
+                  (count - 1) * sizeof(struct ioctl_gntdev_map_grant_ref));
+ 
+@@ -533,13 +498,52 @@ static void *do_gnttab_map_grant_refs(xc
+     map->count = count;
+ 
+     if ( ioctl(fd, IOCTL_GNTDEV_MAP_GRANT_REF, map) ) {
+-        PERROR("xc_gnttab_map_grant_refs: ioctl MAP_GRANT_REF failed");
++        PERROR("linux_gnttab_grant_map: ioctl MAP_GRANT_REF failed");
+         goto out;
+     }
+ 
++ retry:
+     addr = mmap(NULL, XC_PAGE_SIZE * count, prot, MAP_SHARED, fd,
+                 map->index);
+-    if ( addr == MAP_FAILED )
++
++    if (addr == MAP_FAILED && errno == EAGAIN)
++    {
++        /*
++         * The grant hypercall can return EAGAIN if the granted page is
++         * swapped out. Since the paging daemon may be in the same domain, the
++         * hypercall cannot block without causing a deadlock.
++         *
++         * Because there are no notificaitons when the page is swapped in, wait
++         * a bit before retrying, and hope that the page will arrive eventually.
++         */
++        usleep(1000);
++        goto retry;
++    }
++
++    if (addr != MAP_FAILED)
++    {
++        int rv = 0;
++        struct ioctl_gntdev_unmap_notify notify;
++        notify.index = map->index;
++        notify.action = 0;
++        if (notify_offset >= 0 && notify_offset < XC_PAGE_SIZE * count) {
++            notify.index += notify_offset;
++            notify.action |= UNMAP_NOTIFY_CLEAR_BYTE;
++        }
++        if (notify_port != -1) {
++            notify.event_channel_port = notify_port;
++            notify.action |= UNMAP_NOTIFY_SEND_EVENT;
++        }
++        if (notify.action)
++            rv = ioctl(fd, IOCTL_GNTDEV_SET_UNMAP_NOTIFY, &notify);
++        if (rv) {
++            PERROR("linux_gnttab_grant_map: ioctl SET_UNMAP_NOTIFY failed");
++            munmap(addr, count * XC_PAGE_SIZE);
++            addr = MAP_FAILED;
++        }
++    }
++
++    if (addr == MAP_FAILED)
+     {
+         int saved_errno = errno;
+         struct ioctl_gntdev_unmap_grant_ref unmap_grant;
+@@ -558,19 +562,7 @@ static void *do_gnttab_map_grant_refs(xc
+     return addr;
+ }
+ 
+-static void *linux_gnttab_map_grant_refs(xc_gnttab *xcg, xc_osdep_handle h,
+-                                         uint32_t count, uint32_t *domids,
+-                                         uint32_t *refs, int prot)
+-{
+-    return do_gnttab_map_grant_refs(xcg, h, count, domids, 1, refs, prot);
+-}
+ 
+-static void *linux_gnttab_map_domain_grant_refs(xc_gnttab *xcg, xc_osdep_handle h,
+-                                                uint32_t count,
+-                                                uint32_t domid, uint32_t *refs, int prot)
+-{
+-    return do_gnttab_map_grant_refs(xcg, h, count, &domid, 0, refs, prot);
+-}
+ 
+ static int linux_gnttab_munmap(xc_gnttab *xcg, xc_osdep_handle h,
+                                void *start_address, uint32_t count)
+@@ -618,9 +610,7 @@ static struct xc_osdep_ops linux_gnttab_
+     .close = &linux_gnttab_close,
+ 
+     .u.gnttab = {
+-        .map_grant_ref = &linux_gnttab_map_grant_ref,
+-        .map_grant_refs = &linux_gnttab_map_grant_refs,
+-        .map_domain_grant_refs = &linux_gnttab_map_domain_grant_refs,
++        .grant_map = &linux_gnttab_grant_map,
+         .munmap = &linux_gnttab_munmap,
+     },
+ };
+diff -r 4aecc7fe4799 tools/libxc/xc_minios.c
+--- a/tools/libxc/xc_minios.c	Mon Sep 26 22:10:21 2011 +0100
++++ b/tools/libxc/xc_minios.c	Mon Mar 12 15:01:34 2012 +0000
+@@ -444,45 +444,23 @@ void minios_gnttab_close_fd(int fd)
+     files[fd].type = FTYPE_NONE;
+ }
+ 
+-static void *minios_gnttab_map_grant_ref(xc_gnttab *xcg, xc_osdep_handle h,
+-                                         uint32_t domid,
+-                                         uint32_t ref,
+-                                         int prot)
++static void *minios_gnttab_grant_map(xc_gnttab *xcg, xc_osdep_handle h,
++                                     uint32_t count, int flags, int prot,
++                                     uint32_t *domids, uint32_t *refs,
++                                     uint32_t notify_offset,
++                                     evtchn_port_t notify_port)
+ {
+     int fd = (int)h;
++    int stride = 1;
++    if (flags & XC_GRANT_MAP_SINGLE_DOMAIN)
++        stride = 0;
++    if (notify_offset != -1 || notify_port != -1) {
++        errno = ENOSYS;
++        return NULL;
++    }
+     return gntmap_map_grant_refs(&files[fd].gntmap,
+-                                 1,
+-                                 &domid, 0,
+-                                 &ref,
+-                                 prot & PROT_WRITE);
+-}
+-
+-static void *minios_gnttab_map_grant_refs(xc_gnttab *xcg, xc_osdep_handle h,
+-                                          uint32_t count,
+-                                          uint32_t *domids,
+-                                          uint32_t *refs,
+-                                          int prot)
+-{
+-    int fd = (int)h;
+-    return gntmap_map_grant_refs(&files[fd].gntmap,
+-                                 count,
+-                                 domids, 1,
+-                                 refs,
+-                                 prot & PROT_WRITE);
+-}
+-
+-static void *minios_gnttab_map_domain_grant_refs(xc_gnttab *xcg, xc_osdep_handle h,
+-                                                 uint32_t count,
+-                                                 uint32_t domid,
+-                                                 uint32_t *refs,
+-                                                 int prot)
+-{
+-    int fd = (int)h;
+-    return gntmap_map_grant_refs(&files[fd].gntmap,
+-                                 count,
+-                                 &domid, 0,
+-                                 refs,
+-                                 prot & PROT_WRITE);
++                                 count, domids, stride,
++                                 refs, prot & PROT_WRITE);
+ }
+ 
+ static int minios_gnttab_munmap(xc_gnttab *xcg, xc_osdep_handle h,
+@@ -520,9 +498,7 @@ static struct xc_osdep_ops minios_gnttab
+     .close = &minios_gnttab_close,
+ 
+     .u.gnttab = {
+-        .map_grant_ref = &minios_gnttab_map_grant_ref,
+-        .map_grant_refs = &minios_gnttab_map_grant_refs,
+-        .map_domain_grant_refs = &minios_gnttab_map_domain_grant_refs,
++        .grant_map = &minios_gnttab_grant_map,
+         .munmap = &minios_gnttab_munmap,
+         .set_max_grants = &minios_gnttab_set_max_grants,
+     },
+diff -r 4aecc7fe4799 tools/libxc/xenctrl.h
+--- a/tools/libxc/xenctrl.h	Mon Sep 26 22:10:21 2011 +0100
++++ b/tools/libxc/xenctrl.h	Mon Mar 12 15:01:34 2012 +0000
+@@ -1326,6 +1326,29 @@ void *xc_gnttab_map_domain_grant_refs(xc
+                                       uint32_t *refs,
+                                       int prot);
+ 
++/**
++ * Memory maps a grant reference from one domain to a local address range.
++ * Mappings should be unmapped with xc_gnttab_munmap. If notify_offset or
++ * notify_port are not -1, this version will attempt to set up an unmap
++ * notification at the given offset and event channel. When the page is
++ * unmapped, the byte at the given offset will be zeroed and a wakeup will be
++ * sent to the given event channel.  Logs errors.
++ *
++ * @parm xcg a handle on an open grant table interface
++ * @parm domid the domain to map memory from
++ * @parm ref the grant reference ID to map
++ * @parm prot same flag as in mmap()
++ * @parm notify_offset The byte offset in the page to use for unmap
++ *                     notification; -1 for none.
++ * @parm notify_port The event channel port to use for unmap notify, or -1
++ */
++void *xc_gnttab_map_grant_ref_notify(xc_gnttab *xcg,
++                                     uint32_t domid,
++                                     uint32_t ref,
++                                     int prot,
++                                     uint32_t notify_offset,
++                                     evtchn_port_t notify_port);
++
+ /*
+  * Unmaps the @count pages starting at @start_address, which were mapped by a
+  * call to xc_gnttab_map_grant_ref or xc_gnttab_map_grant_refs. Never logs.
+diff -r 4aecc7fe4799 tools/libxc/xenctrlosdep.h
+--- a/tools/libxc/xenctrlosdep.h	Mon Sep 26 22:10:21 2011 +0100
++++ b/tools/libxc/xenctrlosdep.h	Mon Mar 12 15:01:34 2012 +0000
+@@ -102,20 +102,12 @@ struct xc_osdep_ops
+             int (*unmask)(xc_evtchn *xce, xc_osdep_handle h, evtchn_port_t port);
+         } evtchn;
+         struct {
+-            void *(*map_grant_ref)(xc_gnttab *xcg, xc_osdep_handle h,
+-                                   uint32_t domid,
+-                                   uint32_t ref,
+-                                   int prot);
+-            void *(*map_grant_refs)(xc_gnttab *xcg, xc_osdep_handle h,
+-                                    uint32_t count,
+-                                    uint32_t *domids,
+-                                    uint32_t *refs,
+-                                    int prot);
+-            void *(*map_domain_grant_refs)(xc_gnttab *xcg, xc_osdep_handle h,
+-                                           uint32_t count,
+-                                           uint32_t domid,
+-                                           uint32_t *refs,
+-                                           int prot);
++#define XC_GRANT_MAP_SINGLE_DOMAIN 0x1
++            void *(*grant_map)(xc_gnttab *xcg, xc_osdep_handle h,
++                               uint32_t count, int flags, int prot,
++                               uint32_t *domids, uint32_t *refs,
++                               uint32_t notify_offset,
++                               evtchn_port_t notify_port);
+             int (*munmap)(xc_gnttab *xcg, xc_osdep_handle h,
+                           void *start_address,
+                           uint32_t count);

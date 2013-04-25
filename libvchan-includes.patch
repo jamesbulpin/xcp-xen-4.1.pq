@@ -1,0 +1,31 @@
+libxenvchan.h includes xen/sys/evtchn.h, which in the XenServer patchqueue
+may contain domid_t values.  Just re-order the order of includes to make sure
+that Xen-defined values make sense to the compiler.
+
+Signed-off-by: George Dunlap <george.dunlap@eu.citrix.com>
+
+diff -r 48b9a4023e59 tools/libvchan/init.c
+--- a/tools/libvchan/init.c
++++ b/tools/libvchan/init.c
+@@ -41,6 +41,7 @@
+ #include <fcntl.h>
+ 
+ #include <xs.h>
++#include <xen/xen.h>
+ #include <xen/sys/evtchn.h>
+ #include <xen/sys/gntalloc.h>
+ #include <xen/sys/gntdev.h>
+diff -r 48b9a4023e59 tools/libvchan/libxenvchan.h
+--- a/tools/libvchan/libxenvchan.h
++++ b/tools/libvchan/libxenvchan.h
+@@ -43,9 +43,9 @@
+  *  compile time, so the macros in ring.h cannot be used to access the rings.
+  */
+ 
++#include <xenctrl.h>
+ #include <xen/io/libxenvchan.h>
+ #include <xen/sys/evtchn.h>
+-#include <xenctrl.h>
+ 
+ struct libxenvchan_ring {
+ 	/* Pointer into the shared page. Offsets into buffer. */

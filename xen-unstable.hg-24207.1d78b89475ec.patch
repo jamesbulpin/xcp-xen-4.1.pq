@@ -1,0 +1,28 @@
+
+# HG changeset patch
+# User Anil Madhavapeddy <anil@recoil.org>
+# Date 1322161795 0
+# Node ID 1d78b89475ecf4867875e191ba92425bab1f4670
+# Parent  05dd94652d8dbe1d7d0232328bea50fefaad57a9
+libvchan: fix segfault in client error path
+
+In libvchan_client_init, go to the error path if the gntdev device is
+not available.  Otherwise, a segfault happens later as the vchan
+context is invalid.
+
+Signed-off-by: Anil Madhavapeddy <anil@recoil.org>
+Committed-by: Ian Jackson <ian.jackson@eu.citrix.com>
+
+diff -r 05dd94652d8d -r 1d78b89475ec tools/libvchan/init.c
+--- a/tools/libvchan/init.c	Thu Nov 24 19:00:25 2011 +0000
++++ b/tools/libvchan/init.c	Thu Nov 24 19:09:55 2011 +0000
+@@ -385,7 +385,7 @@
+ 
+ 	ctrl->gnttab = xc_gnttab_open(logger, 0);
+ 	if (!ctrl->gnttab)
+-		goto out;
++		goto fail;
+ 
+ // set up event channel
+ 	if (init_evt_cli(ctrl, domain, logger))
+

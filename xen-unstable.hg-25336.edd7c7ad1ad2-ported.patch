@@ -1,0 +1,186 @@
+
+# HG changeset patch
+# User Jan Beulich <jbeulich@suse.com>
+# Date 1337066313 -7200
+# Node ID edd7c7ad1ad23977b0c39f18a904b2ae0ca14daa
+# Parent c616f40452bd629ad3ba063a0cea6d8ad177f5d5
+x86: adjust handling of interrupts coming in via legacy vectors
+
+The debugging code added in c/s 24707:96987c324a4f was hit a (small)
+number of times (one report being
+http://lists.xen.org/archives/html/xen-devel/2012-05/msg00332.html),
+apparently always with a vector within the legacy range. Obviously,
+besides legacy vectors not normally expected to be in use on systems
+with IO-APIC(s), they should never make it to the IRQ migration logic.
+
+This wasn't being prevented so far: Since we don't have a one-to-one
+mapping between vectors and IRQs - legacy IRQs may have two vectors
+associated with them (one used in either 8259A, the other used in one
+of the IO-APICs) -, vector-to-IRQ translations for legacy vectors (as
+used in do_IRQ()) would yield a valid IRQ number despite the IRQ
+really being handled via an IO-APIC.
+
+This gets changed here - disable_8259A_irq() zaps the legacy vector-to-
+IRQ mapping, and enable_8259A_irq(), should it ever be called for a
+particular interrupts, restores it.
+
+The spurious interrupt logic in do_IRQ() gets adjusted too: Interrupts
+coming in via legacy vectors presumably didn't get reported through the
+IO-APIC/LAPIC pair (as we never program these vectors into any RTE or
+LVT). Call ack_APIC_irq() only when the LAPIC's ISR bit says an
+interrupt is pending at the given vector. Plus, a new function (pointer)
+bogus_8259A_irq() gets used to have the 8259A driver take care of the
+bogus interrupt (as outside of automatic EOI mode it may need an EOI to
+be issued for it to prevent other interrupts legitimately going through
+the 8259As from getting masked out).
+
+Signed-off-by: Jan Beulich <jbeulich@suse.com>
+Acked-by: Keir Fraser <keir@xen.org>
+Acked-by: Andrew Cooper <andrew.cooper3@citrix.com>
+
+diff -r c616f40452bd xen/arch/x86/apic.c
+--- a/xen/arch/x86/apic.c
++++ b/xen/arch/x86/apic.c
+@@ -1396,7 +1396,6 @@ void smp_send_state_dump(unsigned int cp
+  */
+ fastcall void smp_spurious_interrupt(struct cpu_user_regs *regs)
+ {
+-    unsigned long v;
+     struct cpu_user_regs *old_regs = set_irq_regs(regs);
+ 
+     irq_enter();
+@@ -1406,8 +1405,7 @@ fastcall void smp_spurious_interrupt(str
+      * a request to dump local CPU state). Vectored interrupts are ACKed;
+      * spurious interrupts are not.
+      */
+-    v = apic_read(APIC_ISR + ((SPURIOUS_APIC_VECTOR & ~0x1f) >> 1));
+-    if (v & (1 << (SPURIOUS_APIC_VECTOR & 0x1f))) {
++    if (apic_isr_read(SPURIOUS_APIC_VECTOR)) {
+         ack_APIC_irq();
+         if (this_cpu(state_dump_pending)) {
+             this_cpu(state_dump_pending) = 0;
+@@ -1580,6 +1578,5 @@ enum apic_mode current_local_apic_mode(v
+ 
+ void check_for_unexpected_msi(unsigned int vector)
+ {
+-    unsigned long v = apic_read(APIC_ISR + ((vector & ~0x1f) >> 1));
+-    BUG_ON(v & (1 << (vector & 0x1f)));
++    BUG_ON(apic_isr_read(vector));
+ }
+diff -r c616f40452bd xen/arch/x86/i8259.c
+--- a/xen/arch/x86/i8259.c
++++ b/xen/arch/x86/i8259.c
+@@ -83,7 +83,15 @@ BUILD_16_IRQS(0xc) BUILD_16_IRQS(0xd) BU
+ 
+ static DEFINE_SPINLOCK(i8259A_lock);
+ 
+-static void mask_and_ack_8259A_irq(unsigned int irq);
++static void _mask_and_ack_8259A_irq(unsigned int irq);
++
++void (*__read_mostly bogus_8259A_irq)(unsigned int irq) =
++    _mask_and_ack_8259A_irq;
++
++static void mask_and_ack_8259A_irq(unsigned int irq)
++{
++    _mask_and_ack_8259A_irq(irq);
++}
+ 
+ static unsigned int startup_8259A_irq(unsigned int irq)
+ {
+@@ -142,6 +150,7 @@ void disable_8259A_irq(unsigned int irq)
+         outb(cached_A1,0xA1);
+     else
+         outb(cached_21,0x21);
++    per_cpu(vector_irq, 0)[LEGACY_VECTOR(irq)] = -1;
+     spin_unlock_irqrestore(&i8259A_lock, flags);
+ }
+ 
+@@ -152,6 +161,7 @@ void enable_8259A_irq(unsigned int irq)
+ 
+     spin_lock_irqsave(&i8259A_lock, flags);
+     cached_irq_mask &= mask;
++    per_cpu(vector_irq, 0)[LEGACY_VECTOR(irq)] = irq;
+     if (irq & 8)
+         outb(cached_A1,0xA1);
+     else
+@@ -224,7 +234,7 @@ static inline int i8259A_irq_real(unsign
+  * first, _then_ send the EOI, and the order of EOI
+  * to the two 8259s is important!
+  */
+-static void mask_and_ack_8259A_irq(unsigned int irq)
++static void _mask_and_ack_8259A_irq(unsigned int irq)
+ {
+     unsigned int irqmask = 1 << irq;
+     unsigned long flags;
+@@ -350,13 +360,19 @@ void __devinit init_8259A(int auto_eoi)
+                                is to be investigated) */
+ 
+     if (auto_eoi)
++    {
+         /*
+          * in AEOI mode we just have to mask the interrupt
+          * when acking.
+          */
+         i8259A_irq_type.ack = disable_8259A_irq;
++        bogus_8259A_irq = disable_8259A_irq;
++    }
+     else
++    {
+         i8259A_irq_type.ack = mask_and_ack_8259A_irq;
++        bogus_8259A_irq = _mask_and_ack_8259A_irq;
++    }
+ 
+     udelay(100);            /* wait for 8259A to initialize */
+ 
+diff -r c616f40452bd xen/arch/x86/irq.c
+--- a/xen/arch/x86/irq.c
++++ b/xen/arch/x86/irq.c
+@@ -665,9 +665,18 @@ asmlinkage void do_IRQ(struct cpu_user_r
+     this_cpu(irq_count)++;
+ 
+     if (irq < 0) {
+-        ack_APIC_irq();
+-        printk("%s: %d.%d No irq handler for vector (irq %d)\n",
+-                __func__, smp_processor_id(), vector, irq);
++        const char *kind = ", LAPIC";
++
++        if ( apic_isr_read(vector) )
++            ack_APIC_irq();
++        else
++            kind = "";
++        if ( vector >= FIRST_LEGACY_VECTOR &&
++            vector <= LAST_LEGACY_VECTOR )
++            bogus_8259A_irq(vector - FIRST_LEGACY_VECTOR);
++        printk("CPU%u: No irq handler for vector %02x (IRQ %d%s)\n",
++                   smp_processor_id(), vector, irq, kind);
++
+         set_irq_regs(old_regs);
+         TRACE_1D(TRC_HW_IRQ_UNMAPPED_VECTOR, vector);
+         return;
+diff -r c616f40452bd xen/include/asm-x86/apic.h
+--- a/xen/include/asm-x86/apic.h
++++ b/xen/include/asm-x86/apic.h
+@@ -146,6 +146,12 @@ static __inline void apic_icr_write(u32 
+     }
+ }
+ 
++static __inline bool_t apic_isr_read(u8 vector)
++{
++    return (apic_read(APIC_ISR + ((vector & ~0x1f) >> 1)) >>
++            (vector & 0x1f)) & 1;
++}
++
+ static __inline u32 get_apic_id(void) /* Get the physical APIC id */
+ {
+     u32 id = apic_read(APIC_ID);
+diff -r c616f40452bd xen/include/asm-x86/irq.h
+--- a/xen/include/asm-x86/irq.h
++++ b/xen/include/asm-x86/irq.h
+@@ -106,6 +106,7 @@ void mask_8259A(void);
+ void unmask_8259A(void);
+ void init_8259A(int aeoi);
+ void make_8259A_irq(unsigned int irq);
++extern void (*bogus_8259A_irq)(unsigned int irq);
+ int i8259A_suspend(void);
+ int i8259A_resume(void);
+ 

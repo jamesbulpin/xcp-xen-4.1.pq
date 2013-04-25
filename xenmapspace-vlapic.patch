@@ -1,0 +1,242 @@
+Xen-side support for letting the guest get at the APIC registers
+directly.
+
+The mapping is only allowed to succeed if there isn't already TPR exit
+avoidance via the hardware (SVM vTPR or VMX TPR shadows)
+
+Patch originally from Tim Deegan via Peter J.
+
+diff -r 503f89139b00 xen/arch/x86/hvm/hvm.c
+--- a/xen/arch/x86/hvm/hvm.c	Fri Jan 21 11:16:02 2011 +0000
++++ b/xen/arch/x86/hvm/hvm.c	Fri Jan 21 11:16:20 2011 +0000
+@@ -66,6 +66,8 @@
+ 
+ bool_t __read_mostly hvm_enabled;
+ 
++int hvm_vlapic_mapfail = 0;
++
+ unsigned int opt_hvm_debug_level __read_mostly;
+ integer_param("hvm_debug", opt_hvm_debug_level);
+ 
+diff -r 503f89139b00 xen/arch/x86/hvm/svm/svm.c
+--- a/xen/arch/x86/hvm/svm/svm.c	Fri Jan 21 11:16:02 2011 +0000
++++ b/xen/arch/x86/hvm/svm/svm.c	Fri Jan 21 11:16:20 2011 +0000
+@@ -965,6 +965,9 @@ struct hvm_function_table * __init start
+         (((CONFIG_PAGING_LEVELS == 4) && (cpuid_edx(0x80000001) & 0x04000000)) ?
+             HVM_HAP_SUPERPAGE_1GB : 0);
+ 
++    /* SVM always provides vTPR acceleration to avoid exits on CR8 accesses */
++    hvm_vlapic_mapfail = (HVM_VLAPIC_MAPFAIL_32 | HVM_VLAPIC_MAPFAIL_64);
++
+     return &svm_function_table;
+ }
+ 
+diff -r 503f89139b00 xen/arch/x86/hvm/vlapic.c
+--- a/xen/arch/x86/hvm/vlapic.c	Fri Jan 21 11:16:02 2011 +0000
++++ b/xen/arch/x86/hvm/vlapic.c	Fri Jan 21 11:16:20 2011 +0000
+@@ -1174,39 +1174,27 @@ HVM_REGISTER_SAVE_RESTORE(LAPIC_REGS, la
+ int vlapic_init(struct vcpu *v)
+ {
+     struct vlapic *vlapic = vcpu_vlapic(v);
+-    unsigned int memflags = MEMF_node(vcpu_to_node(v));
+ 
+     HVM_DBG_LOG(DBG_LEVEL_VLAPIC, "%d", v->vcpu_id);
+ 
+     vlapic->pt.source = PTSRC_lapic;
+ 
+-#ifdef __i386__
+-    /* 32-bit VMX may be limited to 32-bit physical addresses. */
+-    if ( boot_cpu_data.x86_vendor == X86_VENDOR_INTEL )
+-        memflags |= MEMF_bits(32);
+-#endif
+-    if (vlapic->regs_page == NULL)
++    if (vlapic->regs == NULL)
+     {
+-        vlapic->regs_page = alloc_domheap_page(NULL, memflags);
+-        if ( vlapic->regs_page == NULL )
++        vlapic->regs = alloc_xenheap_page();
++        if ( vlapic->regs == NULL )
+         {
+             dprintk(XENLOG_ERR, "alloc vlapic regs error: %d/%d\n",
+                     v->domain->domain_id, v->vcpu_id);
+             return -ENOMEM;
+         }
+     }
+-    if (vlapic->regs == NULL) 
+-    {
+-        vlapic->regs = __map_domain_page_global(vlapic->regs_page);
+-        if ( vlapic->regs == NULL )
+-        {
+-            dprintk(XENLOG_ERR, "map vlapic regs error: %d/%d\n",
+-                    v->domain->domain_id, v->vcpu_id);
+-            return -ENOMEM;
+-        }
+-    }
+     clear_page(vlapic->regs);
+ 
++    /* Guests who know what they're doing can access vlapic state directly. */
++    share_xen_page_with_guest(virt_to_page(vlapic->regs), v->domain, 
++                              XENSHARE_writable);
++
+     vlapic_reset(vlapic);
+ 
+     vlapic->hw.apic_base_msr = (MSR_IA32_APICBASE_ENABLE |
+@@ -1227,6 +1215,6 @@ void vlapic_destroy(struct vcpu *v)
+ 
+     tasklet_kill(&vlapic->init_sipi.tasklet);
+     destroy_periodic_time(&vlapic->pt);
+-    unmap_domain_page_global(vlapic->regs);
+-    free_domheap_page(vlapic->regs_page);
++    free_xenheap_page(vlapic->regs);
++    vlapic->regs = NULL;
+ }
+diff -r 503f89139b00 xen/arch/x86/hvm/vmx/vmcs.c
+--- a/xen/arch/x86/hvm/vmx/vmcs.c	Fri Jan 21 11:16:02 2011 +0000
++++ b/xen/arch/x86/hvm/vmx/vmcs.c	Fri Jan 21 11:16:20 2011 +0000
+@@ -182,6 +182,12 @@ static int vmx_init_vmcs_config(void)
+                SECONDARY_EXEC_ENABLE_EPT |
+                SECONDARY_EXEC_ENABLE_RDTSCP |
+                SECONDARY_EXEC_PAUSE_LOOP_EXITING);
++#if defined(__i386__)
++        /* APIC virtualisation isn't safe on 32-bit hosts since we now
++         * use a xenheap page instead of a 32-bit-safe domheap page for
++         * the APIC registers, and the VMCS field is 32 bits wide.*/
++        opt &= ~(SECONDARY_EXEC_VIRTUALIZE_APIC_ACCESSES);
++#endif
+         if ( opt_vpid_enabled )
+             opt |= SECONDARY_EXEC_ENABLE_VPID;
+         if ( opt_unrestricted_guest_enabled )
+@@ -251,9 +257,7 @@ static int vmx_init_vmcs_config(void)
+ 
+ #if defined(__i386__)
+     /* If we can't virtualise APIC accesses, the TPR shadow is pointless. */
+-    if ( !(_vmx_secondary_exec_control &
+-           SECONDARY_EXEC_VIRTUALIZE_APIC_ACCESSES) )
+-        _vmx_cpu_based_exec_control &= ~CPU_BASED_TPR_SHADOW;
++    _vmx_cpu_based_exec_control &= ~CPU_BASED_TPR_SHADOW;
+ #endif
+ 
+     min = VM_EXIT_ACK_INTR_ON_EXIT;
+@@ -351,6 +355,17 @@ static int vmx_init_vmcs_config(void)
+         return -EINVAL;
+     }
+ 
++    /* Make the existence of TPR acceleration visible outside the VMX code. */
++    if ( vmx_cpu_based_exec_control & CPU_BASED_TPR_SHADOW )
++        hvm_vlapic_mapfail |= HVM_VLAPIC_MAPFAIL_64;
++    /* Intel does not have the lock mov cr0 hack so the only way to
++       access the TPR in 32 bit mode is via APIC mappings. Hence, if
++       the processor does not support the "virtualize apic access"
++       feature, in 32 bit it is safe for the PV drivers to map the
++       lapic page. */
++    if ( vmx_secondary_exec_control & SECONDARY_EXEC_VIRTUALIZE_APIC_ACCESSES )
++        hvm_vlapic_mapfail |= HVM_VLAPIC_MAPFAIL_32;
++
+     return 0;
+ }
+ 
+@@ -853,7 +868,7 @@ static int construct_vmcs(struct vcpu *v
+     if ( cpu_has_vmx_tpr_shadow )
+     {
+         __vmwrite(VIRTUAL_APIC_PAGE_ADDR,
+-                  page_to_maddr(vcpu_vlapic(v)->regs_page));
++                  virt_to_maddr(v->arch.hvm_vcpu.vlapic.regs));
+         __vmwrite(TPR_THRESHOLD, 0);
+     }
+ 
+diff -r 503f89139b00 xen/arch/x86/hvm/vmx/vmx.c
+--- a/xen/arch/x86/hvm/vmx/vmx.c	Fri Jan 21 11:16:02 2011 +0000
++++ b/xen/arch/x86/hvm/vmx/vmx.c	Fri Jan 21 11:16:20 2011 +0000
+@@ -1926,7 +1926,7 @@ static void vmx_install_vlapic_mapping(s
+     if ( !cpu_has_vmx_virtualize_apic_accesses )
+         return;
+ 
+-    virt_page_ma = page_to_maddr(vcpu_vlapic(v)->regs_page);
++    virt_page_ma = virt_to_maddr(vcpu_vlapic(v)->regs);
+     apic_page_ma = v->domain->arch.hvm_domain.vmx.apic_access_mfn;
+     apic_page_ma <<= PAGE_SHIFT;
+ 
+diff -r 503f89139b00 xen/arch/x86/mm.c
+--- a/xen/arch/x86/mm.c	Fri Jan 21 11:16:02 2011 +0000
++++ b/xen/arch/x86/mm.c	Fri Jan 21 11:16:20 2011 +0000
+@@ -109,6 +109,7 @@
+ #include <asm/e820.h>
+ #include <asm/hypercall.h>
+ #include <asm/shared.h>
++#include <asm/hvm/hvm.h>
+ #include <public/memory.h>
+ #include <public/sched.h>
+ #include <xsm/xsm.h>
+@@ -4600,6 +4601,20 @@ long arch_memory_op(int op, XEN_GUEST_HA
+             page = mfn_to_page(mfn);
+             break;
+         }
++        case XENMAPSPACE_vlapic:
++        case XENMAPSPACE_vlapic_compat:
++        {
++            struct vcpu *v;
++            if ( is_hvm_domain(d) &&
++                 xatp.idx < d->max_vcpus &&
++                 (v = d->vcpu[xatp.idx]) != NULL &&
++                 hvm_allow_vlapic_mapping(v) && 
++                 v->arch.hvm_vcpu.vlapic.regs )
++            {
++                mfn = virt_to_mfn(v->arch.hvm_vcpu.vlapic.regs);
++            }
++            break;
++        }
+         default:
+             break;
+         }
+diff -r 503f89139b00 xen/include/asm-x86/hvm/hvm.h
+--- a/xen/include/asm-x86/hvm/hvm.h	Fri Jan 21 11:16:02 2011 +0000
++++ b/xen/include/asm-x86/hvm/hvm.h	Fri Jan 21 11:16:20 2011 +0000
+@@ -148,6 +148,9 @@ struct hvm_function_table {
+ 
+ extern struct hvm_function_table hvm_funcs;
+ extern bool_t hvm_enabled;
++extern int hvm_vlapic_mapfail;
++#define HVM_VLAPIC_MAPFAIL_32 1
++#define HVM_VLAPIC_MAPFAIL_64 2
+ extern bool_t cpu_has_lmsl;
+ 
+ int hvm_domain_initialise(struct domain *d);
+@@ -193,6 +196,11 @@ int hvm_girq_dest_2_vcpu_id(struct domai
+ #define hvm_long_mode_enabled(v) (v,0)
+ #endif
+ 
++#define hvm_allow_vlapic_mapping(v)			\
++    (hvm_long_mode_enabled((v))				\
++     ? !(hvm_vlapic_mapfail & HVM_VLAPIC_MAPFAIL_64)	\
++     : !(hvm_vlapic_mapfail & HVM_VLAPIC_MAPFAIL_32))
++
+ enum hvm_intblk
+ hvm_interrupt_blocked(struct vcpu *v, struct hvm_intack intack);
+ 
+diff -r 503f89139b00 xen/include/asm-x86/hvm/vlapic.h
+--- a/xen/include/asm-x86/hvm/vlapic.h	Fri Jan 21 11:16:02 2011 +0000
++++ b/xen/include/asm-x86/hvm/vlapic.h	Fri Jan 21 11:16:20 2011 +0000
+@@ -59,7 +59,6 @@ struct vlapic {
+     struct hvm_hw_lapic_regs *regs;
+     struct periodic_time     pt;
+     s_time_t                 timer_last_update;
+-    struct page_info         *regs_page;
+     /* INIT-SIPI-SIPI work gets deferred to a tasklet. */
+     struct {
+         struct vcpu          *target;
+diff -r 503f89139b00 xen/include/public/memory.h
+--- a/xen/include/public/memory.h	Fri Jan 21 11:16:02 2011 +0000
++++ b/xen/include/public/memory.h	Fri Jan 21 11:16:20 2011 +0000
+@@ -225,8 +225,12 @@ struct xen_add_to_physmap {
+ #define XENMAPSPACE_shared_info 0 /* shared info page */
+ #define XENMAPSPACE_grant_table 1 /* grant table page */
+ #define XENMAPSPACE_gmfn        2 /* GMFN */
++#define XENMAPSPACE_vlapic_compat 3 /* old location of per-vcpu vlapic
++                                       register page */
+ #define XENMAPSPACE_shared_info_old_xs   4 /* shared info page */
+     unsigned int space;
++#define XENMAPSPACE_vlapic        0x80000000 /* per-vcpu vlapic register
++                                                page */
+ #define XENMAPSPACE_physical      0x80000001 /* Remap a page from one
+                                                 PFN to another. */
+ 

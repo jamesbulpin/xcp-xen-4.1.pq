@@ -1,0 +1,63 @@
+xen,p2m: Track number of superpages in table and report in memory section
+
+Mostly useful for analyzing effectiveness of superpage-conserving code.
+
+Signed-off-by: George Dunlap <george.dunlap@eu.citrix.com>
+
+diff -r 0b69e3df5072 xen/arch/x86/mm/p2m.c
+--- a/xen/arch/x86/mm/p2m.c	Thu Jun 02 15:27:00 2011 +0100
++++ b/xen/arch/x86/mm/p2m.c	Tue Jun 07 14:24:41 2011 +0100
+@@ -400,6 +400,7 @@ p2m_pod_cache_add(struct p2m_domain *p2m
+     case 9:
+         page_list_add_tail(page, &p2m->pod.super); /* lock: page_alloc */
+         p2m->pod.count += 1 << order;
++        p2m->pod.superpage_count++;
+         break;
+     case 0:
+         page_list_add_tail(page, &p2m->pod.single); /* lock: page_alloc */
+@@ -442,6 +443,7 @@ static struct page_info * p2m_pod_cache_
+         /* Break up a superpage to make single pages. NB count doesn't
+          * need to be adjusted. */
+         p = page_list_remove_head(&p2m->pod.super);
++        p2m->pod.superpage_count--;
+         mfn = mfn_x(page_to_mfn(p));
+ 
+         for ( i=0; i<SUPERPAGE_PAGES; i++ )
+@@ -457,6 +459,7 @@ static struct page_info * p2m_pod_cache_
+         BUG_ON( page_list_empty(&p2m->pod.super) );
+         p = page_list_remove_head(&p2m->pod.super);
+         p2m->pod.count -= 1 << order; /* Lock: page_alloc */
++        p2m->pod.superpage_count--;
+         break;
+     case 0:
+         BUG_ON( page_list_empty(&p2m->pod.single) );
+@@ -676,6 +679,7 @@ p2m_pod_empty_cache(struct domain *d)
+         }
+ 
+         p2m->pod.count -= SUPERPAGE_PAGES;
++        p2m->pod.superpage_count--;
+     }
+ 
+     while ( (page = page_list_remove_head(&p2m->pod.single)) )
+@@ -832,8 +836,8 @@ p2m_pod_dump_data(struct p2m_domain *p2m
+                    i+1,
+                    entries,
+                    entries<<(i*9+12));
+-    printk("    PoD entries=%d cachesize=%d\n",
+-           p2m->pod.entry_count, p2m->pod.count);
++    printk("    PoD entries=%d cachesize=%d superpages=%d\n",
++           p2m->pod.entry_count, p2m->pod.count, p2m->pod.superpage_count);
+ }
+ 
+ 
+diff -r 0b69e3df5072 xen/include/asm-x86/p2m.h
+--- a/xen/include/asm-x86/p2m.h	Thu Jun 02 15:27:00 2011 +0100
++++ b/xen/include/asm-x86/p2m.h	Tue Jun 07 14:24:41 2011 +0100
+@@ -255,6 +255,7 @@ struct p2m_domain {
+                          single;       /* Non-super lists                   */
+         int              count,        /* # of pages in cache lists         */
+                          entry_count;  /* # of pages in p2m marked pod      */
++        int              superpage_count; /* # of superpages in cache */
+         unsigned         reclaim_super; /* Last gpfn of a scan */
+         unsigned         reclaim_single; /* Last gpfn of a scan */
+         unsigned         max_guest;    /* gpfn of max guest demand-populate */

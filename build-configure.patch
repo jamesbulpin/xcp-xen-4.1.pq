@@ -1,0 +1,44 @@
+Modify build config from default.
+
+Enable:
+- lomount
+
+Disable:
+- qemu (we build from an external repo)
+
+diff -r 9504ebd29ab0 Config.mk
+--- a/Config.mk	Wed Feb 29 16:22:20 2012 +0000
++++ b/Config.mk	Wed Feb 29 16:26:16 2012 +0000
+@@ -188,7 +188,7 @@ LIBXENAPI_BINDINGS ?= n
+ PYTHON_TOOLS       ?= y
+ OCAML_TOOLS        ?= y
+ CONFIG_MINITERM    ?= n
+-CONFIG_LOMOUNT     ?= n
++CONFIG_LOMOUNT     ?= y
+ 
+ ifeq ($(OCAML_TOOLS),y)
+ OCAML_TOOLS := $(shell ocamlopt -v > /dev/null 2>&1 && echo "y" || echo "n")
+diff -r 9504ebd29ab0 config/x86_32.mk
+--- a/config/x86_32.mk	Wed Feb 29 16:22:20 2012 +0000
++++ b/config/x86_32.mk	Wed Feb 29 16:26:16 2012 +0000
+@@ -5,7 +5,7 @@ CONFIG_X86_$(XEN_OS) := y
+ CONFIG_HVM := y
+ CONFIG_MIGRATE := y
+ CONFIG_XCUTILS := y
+-CONFIG_IOEMU := y
++CONFIG_IOEMU := n
+ 
+ CFLAGS += -m32 -march=i686
+ 
+diff -r 9504ebd29ab0 config/x86_64.mk
+--- a/config/x86_64.mk	Wed Feb 29 16:22:20 2012 +0000
++++ b/config/x86_64.mk	Wed Feb 29 16:26:16 2012 +0000
+@@ -6,7 +6,7 @@ CONFIG_COMPAT := y
+ CONFIG_HVM := y
+ CONFIG_MIGRATE := y
+ CONFIG_XCUTILS := y
+-CONFIG_IOEMU := y
++CONFIG_IOEMU := n
+ 
+ CFLAGS += -m64
+ 

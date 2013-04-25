@@ -1,0 +1,65 @@
+
+# HG changeset patch
+# User Jon Ludlam <jonathan.ludlam@eu.citrix.com>
+# Date 1318261277 -3600
+# Node ID 9ad40e16c68fb140d31b138b80771673e7453ecb
+# Parent  187d59e32a586d65697ed46bef106b52e3fb5ab9
+tools/ocaml: Small improvement to the ocaml xenctrl library
+
+Add a new field 'max_nr_cpus' to the physinfo type in the ocaml xc bindings
+
+Signed-off-by: Zheng Li <zheng.li@eu.citrix.com>
+Acked-by: Ian Campbell <ian.campbell.com>
+Committed-by: Ian Jackson <ian.jackson.citrix.com>
+
+diff -r 187d59e32a58 -r 9ad40e16c68f tools/ocaml/libs/xc/xenctrl.ml
+--- a/tools/ocaml/libs/xc/xenctrl.ml	Mon Oct 10 16:41:16 2011 +0100
++++ b/tools/ocaml/libs/xc/xenctrl.ml	Mon Oct 10 16:41:17 2011 +0100
+@@ -70,6 +70,7 @@
+ 	scrub_pages      : nativeint;
+ 	(* XXX hw_cap *)
+ 	capabilities     : physinfo_cap_flag list;
++	max_nr_cpus      : int;
+ }
+ 
+ type version =
+diff -r 187d59e32a58 -r 9ad40e16c68f tools/ocaml/libs/xc/xenctrl.mli
+--- a/tools/ocaml/libs/xc/xenctrl.mli	Mon Oct 10 16:41:16 2011 +0100
++++ b/tools/ocaml/libs/xc/xenctrl.mli	Mon Oct 10 16:41:17 2011 +0100
+@@ -52,6 +52,7 @@
+   free_pages       : nativeint;
+   scrub_pages      : nativeint;
+   capabilities     : physinfo_cap_flag list;
++  max_nr_cpus      : int; (** compile-time max possible number of nr_cpus *)
+ }
+ type version = { major : int; minor : int; extra : string; }
+ type compile_info = {
+diff -r 187d59e32a58 -r 9ad40e16c68f tools/ocaml/libs/xc/xenctrl_stubs.c
+--- a/tools/ocaml/libs/xc/xenctrl_stubs.c	Mon Oct 10 16:41:16 2011 +0100
++++ b/tools/ocaml/libs/xc/xenctrl_stubs.c	Mon Oct 10 16:41:17 2011 +0100
+@@ -534,6 +534,7 @@
+ 
+ 	if (retval)
+ 		failwith_xc(_H(xch));
++
+ 	ring[size] = '\0';
+ 	CAMLreturn(caml_copy_string(ring));
+ }
+@@ -573,7 +574,7 @@
+ 		}
+ 	}
+ 
+-	physinfo = caml_alloc_tuple(9);
++	physinfo = caml_alloc_tuple(10);
+ 	Store_field(physinfo, 0, Val_int(c_physinfo.threads_per_core));
+ 	Store_field(physinfo, 1, Val_int(c_physinfo.cores_per_socket));
+ 	Store_field(physinfo, 2, Val_int(c_physinfo.nr_cpus));
+@@ -583,6 +584,7 @@
+ 	Store_field(physinfo, 6, caml_copy_nativeint(c_physinfo.free_pages));
+ 	Store_field(physinfo, 7, caml_copy_nativeint(c_physinfo.scrub_pages));
+ 	Store_field(physinfo, 8, cap_list);
++	Store_field(physinfo, 9, Val_int(c_physinfo.max_cpu_id + 1));
+ 
+ 	CAMLreturn(physinfo);
+ }
+

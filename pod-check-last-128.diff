@@ -1,0 +1,24 @@
+xen,pod: Keep 128 entries for pod-checklast
+
+Keep 128 entries rather than 4, so that the checklast mechanism
+works better on multi-vcpu guests.
+
+Windows does its page scrubbing in parallel; while 4 works well for
+single VMs, it breaks down as multiple vcpus are scrubbing different
+pages in parallel.  Increasing to 128 works well for higher numbers
+of vcpus.
+
+Signed-off-by: George Dunlap <george.dunlap@eu.citrix.com>
+
+diff -r 683dd1a59cf7 xen/include/asm-x86/p2m.h
+--- a/xen/include/asm-x86/p2m.h	Tue Jun 14 15:15:31 2011 +0100
++++ b/xen/include/asm-x86/p2m.h	Thu Jun 16 12:45:12 2011 +0100
+@@ -187,7 +187,7 @@ typedef enum {
+ /* Populate-on-demand */
+ #define POPULATE_ON_DEMAND_MFN  (1<<9)
+ #define POD_PAGE_ORDER 9
+-#define POD_HISTORY_MAX 4
++#define POD_HISTORY_MAX 128
+ 
+ #define PAGING_MFN  INVALID_MFN
+ 

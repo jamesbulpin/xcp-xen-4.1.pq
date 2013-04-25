@@ -1,0 +1,100 @@
+commit 80d1ac7320f597b4c981dfdeb19d8e88eb85ca69
+Author: Michael Brown <mcb30@etherboot.org>
+Date:   Fri Mar 26 17:53:24 2010 +0000
+
+    [pxe] Remove pxe_set_cached_filename()
+
+    gPXE currently overwrites the filename stored in the cached DHCP
+    packets when a call to PXENV_TFTP_READ_FILE or PXENV_RESTART_TFTP is
+    made.  This code has existed for many years as a workaround for RIS,
+    which seemed to require that this be done.
+
+    pxe_set_cached_filename() causes problems with the Bootix NBP, and a
+    recent test demonstrates that RIS will complete successfully even with
+    pxe_set_cached_filename() removed.  There have been many changes to
+    the DHCP and PXE logic since this code was first added, and it is
+    quite plausible that it was masking a bug that no longer exists.
+
+    Reported-by: Alex Zeffertt <alex.zeffertt@eu.citrix.com>
+    Debugged-by: Shao Miller <Shao.Miller@yrdsb.edu.on.ca>
+    Signed-off-by: Michael Brown <mcb30@etherboot.org>
+
+diff --git a/tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/include/pxe.h b/tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/include/pxe.h
+--- a/tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/include/pxe.h
++++ b/tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/include/pxe.h
+@@ -149,6 +149,4 @@
+ 
+ extern void pxe_set_netdev ( struct net_device *netdev );
+ 
+-extern void pxe_set_cached_filename ( const unsigned char *filename );
+-
+ #endif /* PXE_H */
+diff --git a/tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/interface/pxe/pxe_preboot.c b/tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/interface/pxe/pxe_preboot.c
+--- a/tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/interface/pxe/pxe_preboot.c
++++ b/tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/interface/pxe/pxe_preboot.c
+@@ -101,24 +101,6 @@
+  */
+ static union pxe_cached_info __bss16_array ( cached_info, [NUM_CACHED_INFOS] );
+ #define cached_info __use_data16 ( cached_info )
+-
+-/**
+- * Set PXE cached TFTP filename
+- *
+- * @v filename		TFTP filename
+- *
+- * This is a bug-for-bug compatibility hack needed in order to work
+- * with Microsoft Remote Installation Services (RIS).  The filename
+- * used in a call to PXENV_RESTART_TFTP or PXENV_TFTP_READ_FILE must
+- * be returned as the DHCP filename in subsequent calls to
+- * PXENV_GET_CACHED_INFO.
+- */
+-void pxe_set_cached_filename ( const unsigned char *filename ) {
+-	memcpy ( cached_info[CACHED_INFO_DHCPACK].dhcphdr.file, filename,
+-		 sizeof ( cached_info[CACHED_INFO_DHCPACK].dhcphdr.file ) );
+-	memcpy ( cached_info[CACHED_INFO_BINL].dhcphdr.file, filename,
+-		 sizeof ( cached_info[CACHED_INFO_BINL].dhcphdr.file ) );
+-}
+ 
+ /**
+  * UNLOAD BASE CODE STACK
+@@ -236,9 +218,6 @@
+ 
+ 	DBG ( "PXENV_RESTART_TFTP " );
+ 
+-	/* Intel bug-for-bug hack */
+-	pxe_set_cached_filename ( restart_tftp->FileName );
+-
+ 	/* Words cannot describe the complete mismatch between the PXE
+ 	 * specification and any possible version of reality...
+ 	 */
+diff --git a/tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/interface/pxe/pxe_tftp.c b/tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/interface/pxe/pxe_tftp.c
+--- a/tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/interface/pxe/pxe_tftp.c
++++ b/tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/interface/pxe/pxe_tftp.c
+@@ -170,9 +170,6 @@
+ 	char uri_string[PXE_TFTP_URI_LEN];
+ 	struct in_addr address;
+ 	int rc;
+-
+-	/* Intel bug-for-bug hack */
+-	pxe_set_cached_filename ( filename );
+ 
+ 	/* Reset PXE TFTP connection structure */
+ 	memset ( &pxe_tftp, 0, sizeof ( pxe_tftp ) );
+@@ -470,17 +467,6 @@
+  * value before calling this function in protected mode.  You cannot
+  * call this function with a 32-bit stack segment.  (See the relevant
+  * @ref pxe_x86_pmode16 "implementation note" for more details.)
+- *
+- * @note Microsoft's NTLDR assumes that the filename passed in via
+- * s_PXENV_TFTP_READ_FILE::FileName will be stored in the "file" field
+- * of the stored DHCPACK packet, whence it will be returned via any
+- * subsequent calls to pxenv_get_cached_info().  Though this is
+- * essentially a bug in the Intel PXE implementation (not, for once,
+- * in the specification!), it is a bug that Microsoft relies upon, and
+- * so we implement this bug-for-bug compatibility by overwriting the
+- * filename stored DHCPACK packet with the filename passed in
+- * s_PXENV_TFTP_READ_FILE::FileName.
+- *
+  */
+ PXENV_EXIT_t pxenv_tftp_read_file ( struct s_PXENV_TFTP_READ_FILE
+ 				    *tftp_read_file ) {

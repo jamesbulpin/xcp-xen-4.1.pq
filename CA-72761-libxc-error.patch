@@ -1,0 +1,25 @@
+# HG changeset patch
+# Parent f836e64d52c9461673216b7d44b19a5aeb6095d4
+diff -r f836e64d52c9 -r 8fadf330aa8d tools/libxc/xc_domain_restore.c
+--- a/tools/libxc/xc_domain_restore.c	Mon Mar 26 09:20:31 2012 +0100
++++ b/tools/libxc/xc_domain_restore.c	Tue Mar 27 12:34:37 2012 +0100
+@@ -87,8 +87,8 @@ static ssize_t rdexact(xc_interface *xch
+         if ( (len == -1) && ((errno == EINTR) || (errno == EAGAIN)) )
+             continue;
+         if ( len == 0 ) {
+-            ERROR("0-length read");
+-            errno = 0;
++            errno = EPIPE;
++            return -1;
+         }
+         if ( len <= 0 ) {
+             ERROR("read_exact_timed failed (read rc: %d, errno: %d, size %d, offset %d)",
+@@ -1253,7 +1253,7 @@ int xc_domain_restore(xc_interface *xch,
+         if ( !ctx->completed ) {
+             pagebuf.nr_physpages = pagebuf.nr_pages = 0;
+             if ( pagebuf_get_one(xch, ctx, &pagebuf, io_fd, dom) < 0 ) {
+-	        DPERROR(tdom, "Error when reading batch");
++	        /* pagebuf_get_one already returned a proper error */
+                 goto out;
+             }
+         }

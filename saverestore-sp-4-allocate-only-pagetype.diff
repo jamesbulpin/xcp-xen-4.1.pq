@@ -1,0 +1,165 @@
+tools: Introduce "allocate-only" page type for migration 
+
+To detect presence of superpages on the receiver side, we need
+to have strings of sequential pfns sent across on the first iteration
+through the memory.  However, as we go through the memory, more and
+more of it will be marked dirty, making it wasteful to send those pages.
+
+This patch introduces a new PFINFO type, "XALLOC".  Like PFINFO_XTAB, it
+indicates that there is no corresponding page present in the subsquent
+page buffer.  However, unlike PFINFO_XTAB, it contains a pfn which should be
+allocated.
+
+This new type is only used for migration; but it's placed in 
+xen/public/domctl.h so that the value isn't reused.
+
+Signed-off-by: George Dunlap <george.dunlap@eu.citrix.com>
+
+diff -r 9ac37f6dbabd tools/libxc/xc_domain_restore.c
+--- a/tools/libxc/xc_domain_restore.c	Thu May 05 16:51:25 2011 +0100
++++ b/tools/libxc/xc_domain_restore.c	Thu May 05 17:02:55 2011 +0100
+@@ -706,7 +706,8 @@
+ 
+     countpages = count;
+     for (i = oldcount; i < buf->nr_pages; ++i)
+-        if ((buf->pfn_types[i] & XEN_DOMCTL_PFINFO_LTAB_MASK) == XEN_DOMCTL_PFINFO_XTAB)
++        if ((buf->pfn_types[i] & XEN_DOMCTL_PFINFO_LTAB_MASK) == XEN_DOMCTL_PFINFO_XTAB
++            ||(buf->pfn_types[i] & XEN_DOMCTL_PFINFO_LTAB_MASK) == XEN_DOMCTL_PFINFO_XALLOC)
+             --countpages;
+ 
+     if (!countpages)
+@@ -786,6 +787,7 @@
+         pfn      = pagebuf->pfn_types[i + curbatch] & ~XEN_DOMCTL_PFINFO_LTAB_MASK;
+         pagetype = pagebuf->pfn_types[i + curbatch] &  XEN_DOMCTL_PFINFO_LTAB_MASK;
+ 
++        /* For allocation purposes, treat XEN_DOMCTL_PFINFO_XALLOC as a normal page */
+         if ( (pagetype != XEN_DOMCTL_PFINFO_XTAB) && 
+              (ctx->p2m[pfn] == INVALID_P2M_ENTRY) )
+         {
+@@ -918,21 +920,21 @@
+         pfn      = pagebuf->pfn_types[i + curbatch] & ~XEN_DOMCTL_PFINFO_LTAB_MASK;
+         pagetype = pagebuf->pfn_types[i + curbatch] &  XEN_DOMCTL_PFINFO_LTAB_MASK;
+ 
+-        if ( pagetype == XEN_DOMCTL_PFINFO_XTAB )
++        if ( pagetype != XEN_DOMCTL_PFINFO_XTAB
++             && ctx->p2m[pfn] == (INVALID_P2M_ENTRY-1) )
++        {
++            /* We just allocated a new mfn above; update p2m */
++            ctx->p2m[pfn] = ctx->p2m_batch[nr_mfns++]; 
++            ctx->nr_pfns++; 
++        }
++
++        /* setup region_mfn[] for batch map, if necessary.
++         * For HVM guests, this interface takes PFNs, not MFNs */
++        if ( pagetype == XEN_DOMCTL_PFINFO_XTAB
++             || pagetype == XEN_DOMCTL_PFINFO_XALLOC )
+             region_mfn[i] = ~0UL; /* map will fail but we don't care */
+-        else 
+-        {
+-            if ( ctx->p2m[pfn] == (INVALID_P2M_ENTRY-1) )
+-            {
+-                /* We just allocated a new mfn above; update p2m */
+-                ctx->p2m[pfn] = ctx->p2m_batch[nr_mfns++]; 
+-                ctx->nr_pfns++; 
+-            }
+-
+-            /* setup region_mfn[] for batch map.
+-             * For HVM guests, this interface takes PFNs, not MFNs */
++        else
+             region_mfn[i] = hvm ? pfn : ctx->p2m[pfn]; 
+-        }
+     }
+ 
+     /* Map relevant mfns */
+@@ -952,8 +954,9 @@
+         pfn      = pagebuf->pfn_types[i + curbatch] & ~XEN_DOMCTL_PFINFO_LTAB_MASK;
+         pagetype = pagebuf->pfn_types[i + curbatch] &  XEN_DOMCTL_PFINFO_LTAB_MASK;
+ 
+-        if ( pagetype == XEN_DOMCTL_PFINFO_XTAB )
+-            /* a bogus/unmapped page: skip it */
++        if ( pagetype == XEN_DOMCTL_PFINFO_XTAB 
++             || pagetype == XEN_DOMCTL_PFINFO_XALLOC)
++            /* a bogus/unmapped/allocate-only page: skip it */
+             continue;
+ 
+         if (pfn_err[i])
+diff -r 9ac37f6dbabd tools/libxc/xc_domain_save.c
+--- a/tools/libxc/xc_domain_save.c	Thu May 05 16:51:25 2011 +0100
++++ b/tools/libxc/xc_domain_save.c	Thu May 05 17:02:55 2011 +0100
+@@ -1260,13 +1260,15 @@
+                 }
+                 else
+                 {
+-                    if ( !last_iter &&
++                    int dont_skip = (last_iter || (superpages && iter==1));
++
++                    if ( !dont_skip &&
+                          test_bit(n, to_send) &&
+                          test_bit(n, to_skip) )
+                         skip_this_iter++; /* stats keeping */
+ 
+                     if ( !((test_bit(n, to_send) && !test_bit(n, to_skip)) ||
+-                           (test_bit(n, to_send) && last_iter) ||
++                           (test_bit(n, to_send) && dont_skip) ||
+                            (test_bit(n, to_fix)  && last_iter)) )
+                         continue;
+ 
+@@ -1279,7 +1281,7 @@
+                     /*
+                     ** we get here if:
+                     **  1. page is marked to_send & hasn't already been re-dirtied
+-                    **  2. (ignore to_skip in last iteration)
++                    **  2. (ignore to_skip in first and last iterations)
+                     **  3. add in pages that still need fixup (net bufs)
+                     */
+ 
+@@ -1303,7 +1305,7 @@
+                         set_bit(n, to_fix);
+                         continue;
+                     }
+-
++                    
+                     if ( last_iter &&
+                          test_bit(n, to_fix) &&
+                          !test_bit(n, to_send) )
+@@ -1348,6 +1350,7 @@
+                 {
+                     if ( pfn_type[j] == XEN_DOMCTL_PFINFO_XTAB )
+                         continue;
++
+                     DPRINTF("map fail: page %i mfn %08lx err %d\n",
+                             j, gmfn, pfn_err[j]);
+                     pfn_type[j] = XEN_DOMCTL_PFINFO_XTAB;
+@@ -1360,6 +1363,9 @@
+                     continue;
+                 }
+ 
++                if ( superpages && iter==1 && test_bit(gmfn, to_skip))
++                    pfn_type[j] = XEN_DOMCTL_PFINFO_XALLOC;
++
+                 /* canonicalise mfn->pfn */
+                 pfn_type[j] |= pfn_batch[j];
+                 ++run;
+@@ -1434,8 +1440,9 @@
+                     }
+                 }
+ 
+-                /* skip pages that aren't present */
+-                if ( pagetype == XEN_DOMCTL_PFINFO_XTAB )
++                /* skip pages that aren't present or are alloc-only */
++                if ( pagetype == XEN_DOMCTL_PFINFO_XTAB
++                    || pagetype == XEN_DOMCTL_PFINFO_XALLOC )
+                     continue;
+ 
+                 pagetype &= XEN_DOMCTL_PFINFO_LTABTYPE_MASK;
+diff -r 9ac37f6dbabd xen/include/public/domctl.h
+--- a/xen/include/public/domctl.h	Thu May 05 16:51:25 2011 +0100
++++ b/xen/include/public/domctl.h	Thu May 05 17:02:55 2011 +0100
+@@ -133,6 +133,7 @@
+ #define XEN_DOMCTL_PFINFO_LTABTYPE_MASK (0x7U<<28)
+ #define XEN_DOMCTL_PFINFO_LPINTAB (0x1U<<31)
+ #define XEN_DOMCTL_PFINFO_XTAB    (0xfU<<28) /* invalid page */
++#define XEN_DOMCTL_PFINFO_XALLOC  (0xeU<<28) /* allocate-only page */
+ #define XEN_DOMCTL_PFINFO_PAGEDTAB (0x8U<<28)
+ #define XEN_DOMCTL_PFINFO_LTAB_MASK (0xfU<<28)
+ 

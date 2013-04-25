@@ -1,0 +1,108 @@
+Do not implement PXENV_UNDI_ISR_IN_GET_NEXT if NBP is from PVS
+
+The PVS Network Boot Program expects exactly one received packet.
+It retrieves this packet with a call to PROCESS, then instead of
+calling GET_NEXT repeatedly until it returns DONE, the NBP calls
+GET_NEXT only once and ignores any received packet as it assumes
+it returned DONE.
+
+To work around this, check if we are running a PVS NBP, and if so
+always return DONE when GET_NEXT is called and do not dequeue a
+packet.  There is no risk of the rx ring overflowing as PVS
+calls PROCESS in a tight loop when it has nothing else to do.
+
+Signed-off-by: Alex Zeffertt <alex.zeffertt@eu.citrix.com>
+
+diff -r 6a47a8cb9270 tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/interface/pxe/pxe_udp.c
+--- a/tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/interface/pxe/pxe_udp.c	Wed Feb 15 09:07:12 2012 +0000
++++ b/tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/interface/pxe/pxe_udp.c	Wed Feb 15 09:33:29 2012 +0000
+@@ -213,6 +213,8 @@ PXENV_EXIT_t pxenv_udp_close ( struct s_
+ 	return PXENV_EXIT_SUCCESS;
+ }
+ 
++extern int running_pvs_nbp;
++
+ /**
+  * UDP WRITE
+  *
+@@ -274,6 +276,16 @@ PXENV_EXIT_t pxenv_udp_write ( struct s_
+ 	dest.sin_addr.s_addr = pxenv_udp_write->ip;
+ 	dest.sin_port = pxenv_udp_write->dst_port;
+ 
++	/* Detect PVS */
++	if ( running_pvs_nbp == -1 ) {
++		if (pxenv_udp_write->src_port == htons ( 6901 ) ) {
++			running_pvs_nbp = 1;
++		}
++		else {
++			running_pvs_nbp = 0;
++		}
++	}
++
+ 	/* Set local (source) port.  PXE spec says source port is 2069
+ 	 * if not specified.  Really, this ought to be set at UDP open
+ 	 * time but hey, we didn't design this API.
+diff -r 6a47a8cb9270 tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/interface/pxe/pxe_undi.c
+--- a/tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/interface/pxe/pxe_undi.c	Wed Feb 15 09:07:12 2012 +0000
++++ b/tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/interface/pxe/pxe_undi.c	Wed Feb 15 09:33:29 2012 +0000
+@@ -39,6 +39,9 @@ FILE_LICENCE ( GPL2_OR_LATER );
+ #include <gpxe/rarp.h>
+ #include "pxe.h"
+ 
++int running_pvs_nbp = -1;
++
++
+ /**
+  * Count of outstanding transmitted packets
+  *
+@@ -322,6 +325,20 @@ PXENV_EXIT_t pxenv_undi_transmit ( struc
+ 	 */
+ 	undi_tx_count++;
+ 
++	/* Detect PVS */
++	if ( running_pvs_nbp == -1 ) {
++		running_pvs_nbp = 0;
++		if ( undi_transmit->Protocol == P_UNKNOWN && tbd.ImmedLength >= 0x2a ) {
++			uint8_t *packet = iobuf->data;
++			if ( *((uint16_t *)&packet[12]) == htons(0x800) && /* check IP protocol */
++			     packet[14] >> 4 == 4 && /* IPv4 */
++			     packet[0x17] == 17 && /* UDP */
++			     *((uint16_t *)&packet[0x22]) == htons(6901) /* source port */ ) {
++				running_pvs_nbp = 1;
++			}
++		}
++	}
++
+ 	/* Transmit packet */
+ 	DBG2 ( "\n" );
+ 	if ( ( rc = netdev_tx ( pxe_netdev, iobuf ) ) != 0 ) {
+@@ -681,8 +698,28 @@ PXENV_EXIT_t pxenv_undi_isr ( struct s_P
+ 		DBGC2 ( &pxenv_undi_isr, " OURS" );
+ 		undi_isr->FuncFlag = PXENV_UNDI_ISR_OUT_OURS;
+ 		break;
++	case PXENV_UNDI_ISR_IN_GET_NEXT :
++
++		/* If we are NOT running PVS network boot program
++		 * then GET_NEXT is handled the same as PROCESS.
++		 * For PVS NBPs GET_NEXT must NOT return a frame as
++		 * PVS ignores frames returned by GET_NEXT.
++		 */
++		if (running_pvs_nbp == 1) {
++
++			/* We only ever return one frame at a time */
++			DBGC2 ( &pxenv_undi_isr, " GET_NEXT DONE (PVS)" );
++			
++			/* Re-enable interrupts */
++			netdev_irq ( pxe_netdev, 1 );
++			
++			undi_isr->FuncFlag = PXENV_UNDI_ISR_OUT_DONE;
++			
++			break;
++		}
++		/* NOTE fall through if (!running_pvs_nbp) */
++			
+ 	case PXENV_UNDI_ISR_IN_PROCESS :
+-	case PXENV_UNDI_ISR_IN_GET_NEXT :
+ 		DBGC2 ( &pxenv_undi_isr, " %s",
+ 			( ( undi_isr->FuncFlag == PXENV_UNDI_ISR_IN_PROCESS ) ?
+ 			  "PROCESS" : "GET_NEXT" ) );

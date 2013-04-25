@@ -1,0 +1,1883 @@
+# HG changeset patch
+# Parent 6cbae30fecd8345357daf39064105d7d90e5db10
+
+diff -r 6cbae30fecd8 tools/libxc/xc_domain_restore.c
+--- a/tools/libxc/xc_domain_restore.c
++++ b/tools/libxc/xc_domain_restore.c
+@@ -33,6 +33,8 @@
+ #include <xen/hvm/ioreq.h>
+ #include <xen/hvm/params.h>
+ 
++static int tdom=-1;
++
+ struct restore_ctx {
+     unsigned long max_mfn; /* max mfn of the current host machine */
+     unsigned long hvirt_start; /* virtual starting address of the hypervisor */
+@@ -206,7 +208,7 @@ static xen_pfn_t *load_p2m_frame_list(
+     /* Read first entry of P2M list, or extended-info signature (~0UL). */
+     if ( RDEXACT(io_fd, &p2m_fl_zero, sizeof(long)) )
+     {
+-        PERROR("read extended-info signature failed");
++        DPERROR(tdom, "read extended-info signature failed");
+         return NULL;
+     }
+     
+@@ -217,7 +219,7 @@ static xen_pfn_t *load_p2m_frame_list(
+         /* Next 4 bytes: total size of following extended info. */
+         if ( RDEXACT(io_fd, &tot_bytes, sizeof(tot_bytes)) )
+         {
+-            PERROR("read extended-info size failed");
++            DPERROR(tdom, "read extended-info size failed");
+             return NULL;
+         }
+         
+@@ -231,7 +233,7 @@ static xen_pfn_t *load_p2m_frame_list(
+                  RDEXACT(io_fd, &chunk_bytes, sizeof(chunk_bytes)) ||
+                  (tot_bytes < (chunk_bytes + 8)) )
+             {
+-                PERROR("read extended-info chunk signature failed");
++                DPERROR(tdom, "read extended-info chunk signature failed");
+                 return NULL;
+             }
+             tot_bytes -= 8;
+@@ -253,13 +255,13 @@ static xen_pfn_t *load_p2m_frame_list(
+                 }
+                 else 
+                 {
+-                    ERROR("bad extended-info context size %d", chunk_bytes);
++                    DERROR(tdom, "bad extended-info context size %d", chunk_bytes);
+                     return NULL;
+                 }
+ 
+                 if ( RDEXACT(io_fd, &ctxt, chunk_bytes) )
+                 {
+-                    PERROR("read extended-info vcpu context failed");
++                    DPERROR(tdom, "read extended-info vcpu context failed");
+                     return NULL;
+                 }
+                 tot_bytes -= chunk_bytes;
+@@ -287,7 +289,7 @@ static xen_pfn_t *load_p2m_frame_list(
+                 unsigned long sz = MIN(chunk_bytes, sizeof(xen_pfn_t));
+                 if ( RDEXACT(io_fd, &p2m_fl_zero, sz) )
+                 {
+-                    PERROR("read-and-discard extended-info chunk bytes failed");
++                    DPERROR(tdom, "read-and-discard extended-info chunk bytes failed");
+                     return NULL;
+                 }
+                 chunk_bytes -= sz;
+@@ -298,7 +300,7 @@ static xen_pfn_t *load_p2m_frame_list(
+         /* Now read the real first entry of P2M list. */
+         if ( RDEXACT(io_fd, &p2m_fl_zero, sizeof(xen_pfn_t)) )
+         {
+-            PERROR("read first entry of p2m_frame_list failed");
++            DPERROR(tdom, "read first entry of p2m_frame_list failed");
+             return NULL;
+         }
+     }
+@@ -307,7 +309,7 @@ static xen_pfn_t *load_p2m_frame_list(
+      * the p2m frame list */
+     if ( (p2m_frame_list = malloc(P2M_TOOLS_FL_SIZE)) == NULL )
+     {
+-        ERROR("Couldn't allocate p2m_frame_list array");
++        DERROR(tdom, "Couldn't allocate p2m_frame_list array");
+         return NULL;
+     }
+ 
+@@ -316,7 +318,7 @@ static xen_pfn_t *load_p2m_frame_list(
+     if ( RDEXACT(io_fd, &p2m_frame_list[1], 
+                  (P2M_FL_ENTRIES - 1) * sizeof(xen_pfn_t)) )
+     {
+-        PERROR("read p2m_frame_list failed");
++        DPERROR(tdom, "read p2m_frame_list failed");
+         return NULL;
+     }
+     
+@@ -357,16 +359,16 @@ static int buffer_tail_hvm(xc_interface 
+     uint8_t *tmp;
+ 
+     if ( RDEXACT(fd, buf->magicpfns, sizeof(buf->magicpfns)) ) {
+-        PERROR("Error reading magic PFNs");
++        DPERROR(tdom, "Error reading magic PFNs");
+         return -1;
+     }
+ 
+-    DPRINTF("xc_domain_restore: magicpfn 0 0x%lx\n", (unsigned long)buf->magicpfns[0]);
+-    DPRINTF("xc_domain_restore: magicpfn 1 0x%lx\n", (unsigned long)buf->magicpfns[1]);
+-    DPRINTF("xc_domain_restore: magicpfn 2 0x%lx\n", (unsigned long)buf->magicpfns[2]);
++    DDPRINTF(tdom, "xc_domain_restore: magicpfn 0 0x%lx\n", (unsigned long)buf->magicpfns[0]);
++    DDPRINTF(tdom, "xc_domain_restore: magicpfn 1 0x%lx\n", (unsigned long)buf->magicpfns[1]);
++    DDPRINTF(tdom, "xc_domain_restore: magicpfn 2 0x%lx\n", (unsigned long)buf->magicpfns[2]);
+     
+     if ( RDEXACT(fd, &buf->reclen, sizeof(buf->reclen)) ) {
+-        PERROR("Error reading HVM params size");
++        DPERROR(tdom, "Error reading HVM params size");
+         return -1;
+     }
+ 
+@@ -377,13 +379,13 @@ static int buffer_tail_hvm(xc_interface 
+                 buf->hvmbuf = tmp;
+                 buf->hvmbufsize = buf->reclen;
+             } else {
+-                ERROR("Error reallocating HVM param buffer");
++                DERROR(tdom, "Error reallocating HVM param buffer");
+                 return -1;
+             }
+         } else {
+             buf->hvmbuf = malloc(buf->reclen);
+             if ( !buf->hvmbuf ) {
+-                ERROR("Error allocating HVM param buffer");
++                DERROR(tdom, "Error allocating HVM param buffer");
+                 return -1;
+             }
+             buf->hvmbufsize = buf->reclen;
+@@ -391,7 +393,7 @@ static int buffer_tail_hvm(xc_interface 
+     }
+ 
+     if ( RDEXACT(fd, buf->hvmbuf, buf->reclen) ) {
+-        PERROR("Error reading HVM params");
++        DPERROR(tdom, "Error reading HVM params");
+         return -1;
+     }
+ 
+@@ -414,31 +416,31 @@ static int buffer_tail_pv(xc_interface *
+     if ( RDEXACT(fd, &buf->pfncount, sizeof(buf->pfncount)) ||
+          (buf->pfncount > (1U << 28)) ) /* up to 1TB of address space */
+     {
+-        PERROR("Error when reading pfn count");
++        DPERROR(tdom, "Error when reading pfn count");
+         return -1;
+     }
+     pfnlen = sizeof(unsigned long) * buf->pfncount;
+     if ( !(buf->pfntab) ) {
+         if ( !(buf->pfntab = malloc(pfnlen)) ) {
+-            ERROR("Error allocating PFN tail buffer");
++            DERROR(tdom, "Error allocating PFN tail buffer");
+             return -1;
+         }
+     }
+-    // DPRINTF("Reading PFN tab: %d bytes\n", pfnlen);
++    // DDPRINTF(tdom, "Reading PFN tab: %d bytes\n", pfnlen);
+     if ( RDEXACT(fd, buf->pfntab, pfnlen) ) {
+-        PERROR("Error when reading pfntab");
++        DPERROR(tdom, "Error when reading pfntab");
+         goto free_pfntab;
+     }
+ 
+     /* VCPU contexts */
+     buf->vcpucount = 0;
+     for (i = 0; i <= max_vcpu_id; i++) {
+-        // DPRINTF("vcpumap: %llx, cpu: %d, bit: %llu\n", vcpumap, i, (vcpumap % (1ULL << i)));
++        // DDPRINTF(tdom, "vcpumap: %llx, cpu: %d, bit: %llu\n", vcpumap, i, (vcpumap % (1ULL << i)));
+         if ( (!(vcpumap & (1ULL << i))) )
+             continue;
+         buf->vcpucount++;
+     }
+-    // DPRINTF("VCPU count: %d\n", buf->vcpucount);
++    // DDPRINTF(tdom, "VCPU count: %d\n", buf->vcpucount);
+     vcpulen = ((dinfo->guest_width == 8) ? sizeof(vcpu_guest_context_x86_64_t)
+                : sizeof(vcpu_guest_context_x86_32_t)) * buf->vcpucount;
+     if ( ext_vcpucontext )
+@@ -449,20 +451,20 @@ static int buffer_tail_pv(xc_interface *
+ 
+     if ( !(buf->vcpubuf) ) {
+         if ( !(buf->vcpubuf = malloc(vcpulen)) ) {
+-            ERROR("Error allocating VCPU ctxt tail buffer");
++            DERROR(tdom, "Error allocating VCPU ctxt tail buffer");
+             goto free_pfntab;
+         }
+     }
+-    // DPRINTF("Reading VCPUS: %d bytes\n", vcpulen);
++    // DDPRINTF(tdom, "Reading VCPUS: %d bytes\n", vcpulen);
+     if ( RDEXACT(fd, buf->vcpubuf, vcpulen) ) {
+-        PERROR("Error when reading ctxt");
++        DPERROR(tdom, "Error when reading ctxt");
+         goto free_vcpus;
+     }
+ 
+     /* load shared_info_page */
+-    // DPRINTF("Reading shared info: %lu bytes\n", PAGE_SIZE);
++    // DDPRINTF(tdom, "Reading shared info: %lu bytes\n", PAGE_SIZE);
+     if ( RDEXACT(fd, buf->shared_info_page, PAGE_SIZE) ) {
+-        PERROR("Error when reading shared info page");
++        DPERROR(tdom, "Error when reading shared info page");
+         goto free_vcpus;
+     }
+ 
+@@ -575,20 +577,20 @@ static int pagebuf_get_one(xc_interface 
+ 
+     if ( RDEXACT(fd, &count, sizeof(count)) )
+     {
+-        PERROR("Error when reading batch size");
++        DPERROR(tdom, "Error when reading batch size");
+         return -1;
+     }
+ 
+-    // DPRINTF("reading batch of %d pages\n", count);
++    // DDPRINTF(tdom, "reading batch of %d pages\n", count);
+ 
+     switch ( count )
+     {
+     case 0:
+-        // DPRINTF("Last batch read\n");
++        // DDPRINTF(tdom, "Last batch read\n");
+         return 0;
+ 
+     case XC_SAVE_ID_ENABLE_VERIFY_MODE:
+-        DPRINTF("Entering page verify mode\n");
++        DDPRINTF(tdom, "Entering page verify mode\n");
+         buf->verify = 1;
+         return pagebuf_get_one(xch, ctx, buf, fd, dom);
+ 
+@@ -597,10 +599,10 @@ static int pagebuf_get_one(xc_interface 
+         if ( RDEXACT(fd, &buf->max_vcpu_id, sizeof(buf->max_vcpu_id)) ||
+              buf->max_vcpu_id >= 64 || RDEXACT(fd, &buf->vcpumap,
+                                                sizeof(uint64_t)) ) {
+-            PERROR("Error when reading max_vcpu_id");
++            DPERROR(tdom, "Error when reading max_vcpu_id");
+             return -1;
+         }
+-        // DPRINTF("Max VCPU ID: %d, vcpumap: %llx\n", buf->max_vcpu_id, buf->vcpumap);
++        // DDPRINTF(tdom, "Max VCPU ID: %d, vcpumap: %llx\n", buf->max_vcpu_id, buf->vcpumap);
+         return pagebuf_get_one(xch, ctx, buf, fd, dom);
+ 
+     case XC_SAVE_ID_HVM_IDENT_PT:
+@@ -608,10 +610,10 @@ static int pagebuf_get_one(xc_interface 
+         if ( RDEXACT(fd, &buf->identpt, sizeof(uint32_t)) ||
+              RDEXACT(fd, &buf->identpt, sizeof(uint64_t)) )
+         {
+-            PERROR("error read the address of the EPT identity map");
++            DPERROR(tdom, "error read the address of the EPT identity map");
+             return -1;
+         }
+-        // DPRINTF("EPT identity map address: %llx\n", buf->identpt);
++        // DDPRINTF(tdom, "EPT identity map address: %llx\n", buf->identpt);
+         return pagebuf_get_one(xch, ctx, buf, fd, dom);
+ 
+     case XC_SAVE_ID_HVM_VM86_TSS:
+@@ -619,23 +621,23 @@ static int pagebuf_get_one(xc_interface 
+         if ( RDEXACT(fd, &buf->vm86_tss, sizeof(uint32_t)) ||
+              RDEXACT(fd, &buf->vm86_tss, sizeof(uint64_t)) )
+         {
+-            PERROR("error read the address of the vm86 TSS");
++            DPERROR(tdom, "error read the address of the vm86 TSS");
+             return -1;
+         }
+-        // DPRINTF("VM86 TSS location: %llx\n", buf->vm86_tss);
++        // DDPRINTF(tdom, "VM86 TSS location: %llx\n", buf->vm86_tss);
+         return pagebuf_get_one(xch, ctx, buf, fd, dom);
+ 
+     case XC_SAVE_ID_TMEM:
+-        DPRINTF("xc_domain_restore start tmem\n");
++        DDPRINTF(tdom, "xc_domain_restore start tmem\n");
+         if ( xc_tmem_restore(xch, dom, fd) ) {
+-            PERROR("error reading/restoring tmem");
++            DPERROR(tdom, "error reading/restoring tmem");
+             return -1;
+         }
+         return pagebuf_get_one(xch, ctx, buf, fd, dom);
+ 
+     case XC_SAVE_ID_TMEM_EXTRA:
+         if ( xc_tmem_restore_extra(xch, dom, fd) ) {
+-            PERROR("error reading/restoring tmem extra");
++            DPERROR(tdom, "error reading/restoring tmem extra");
+             return -1;
+         }
+         return pagebuf_get_one(xch, ctx, buf, fd, dom);
+@@ -649,7 +651,7 @@ static int pagebuf_get_one(xc_interface 
+              RDEXACT(fd, &khz, sizeof(uint32_t)) ||
+              RDEXACT(fd, &incarn, sizeof(uint32_t)) ||
+              xc_domain_set_tsc_info(xch, dom, tsc_mode, nsec, khz, incarn) ) {
+-            PERROR("error reading/restoring tsc info");
++            DPERROR(tdom, "error reading/restoring tsc info");
+             return -1;
+         }
+         return pagebuf_get_one(xch, ctx, buf, fd, dom);
+@@ -660,15 +662,15 @@ static int pagebuf_get_one(xc_interface 
+         if ( RDEXACT(fd, &buf->console_pfn, sizeof(uint32_t)) ||
+              RDEXACT(fd, &buf->console_pfn, sizeof(uint64_t)) )
+         {
+-            PERROR("error read the address of the console pfn");
++            DPERROR(tdom, "error read the address of the console pfn");
+             return -1;
+         }
+-        // DPRINTF("console pfn location: %llx\n", buf->console_pfn);
++        // DDPRINTF(tdom, "console pfn location: %llx\n", buf->console_pfn);
+         return pagebuf_get_one(xch, ctx, buf, fd, dom);
+ 
+     case XC_SAVE_ID_LAST_CHECKPOINT:
+         ctx->last_checkpoint = 1;
+-        // DPRINTF("last checkpoint indication received");
++        // DDPRINTF(tdom, "last checkpoint indication received");
+         return pagebuf_get_one(xch, ctx, buf, fd, dom);
+ 
+     case XC_SAVE_ID_HVM_ACPI_IOPORTS_LOCATION:
+@@ -676,7 +678,7 @@ static int pagebuf_get_one(xc_interface 
+         if ( RDEXACT(fd, &buf->acpi_ioport_location, sizeof(uint32_t)) ||
+              RDEXACT(fd, &buf->acpi_ioport_location, sizeof(uint64_t)) )
+         {
+-            PERROR("error read the acpi ioport location");
++            DPERROR(tdom, "error read the acpi ioport location");
+             return -1;
+         }
+         return pagebuf_get_one(xch, ctx, buf, fd, dom);
+@@ -686,14 +688,14 @@ static int pagebuf_get_one(xc_interface 
+         if ( RDEXACT(fd, &buf->viridian, sizeof(uint32_t)) ||
+              RDEXACT(fd, &buf->viridian, sizeof(uint64_t)) )
+         {
+-            PERROR("error read the viridian flag");
++            DPERROR(tdom, "error read the viridian flag");
+             return -1;
+         }
+         return pagebuf_get_one(xch, ctx, buf, fd, dom);
+ 
+     default:
+         if ( (count > MAX_BATCH_SIZE) || (count < 0) ) {
+-            ERROR("Max batch size exceeded (%d). Giving up.", count);
++            DERROR(tdom, "Max batch size exceeded (%d). Giving up.", count);
+             errno = EMSGSIZE;
+             return -1;
+         }
+@@ -704,18 +706,18 @@ static int pagebuf_get_one(xc_interface 
+     buf->nr_pages += count;
+     if (!buf->pfn_types) {
+         if (!(buf->pfn_types = malloc(buf->nr_pages * sizeof(*(buf->pfn_types))))) {
+-            ERROR("Could not allocate PFN type buffer");
++            DERROR(tdom, "Could not allocate PFN type buffer");
+             return -1;
+         }
+     } else {
+         if (!(ptmp = realloc(buf->pfn_types, buf->nr_pages * sizeof(*(buf->pfn_types))))) {
+-            ERROR("Could not reallocate PFN type buffer");
++            DERROR(tdom, "Could not reallocate PFN type buffer");
+             return -1;
+         }
+         buf->pfn_types = ptmp;
+     }
+     if ( RDEXACT(fd, buf->pfn_types + oldcount, count * sizeof(*(buf->pfn_types)))) {
+-        PERROR("Error when reading region pfn types");
++        DPERROR(tdom, "Error when reading region pfn types");
+         return -1;
+     }
+ 
+@@ -732,18 +734,18 @@ static int pagebuf_get_one(xc_interface 
+     buf->nr_physpages += countpages;
+     if (!buf->pages) {
+         if (!(buf->pages = malloc(buf->nr_physpages * PAGE_SIZE))) {
+-            ERROR("Could not allocate page buffer");
++            DERROR(tdom, "Could not allocate page buffer");
+             return -1;
+         }
+     } else {
+         if (!(ptmp = realloc(buf->pages, buf->nr_physpages * PAGE_SIZE))) {
+-            ERROR("Could not reallocate page buffer");
++            DERROR(tdom, "Could not reallocate page buffer");
+             return -1;
+         }
+         buf->pages = ptmp;
+     }
+     if ( RDEXACT(fd, buf->pages + oldcount * PAGE_SIZE, countpages * PAGE_SIZE) ) {
+-        PERROR("Error when reading pages");
++        DPERROR(tdom, "Error when reading pages");
+         return -1;
+     }
+ 
+@@ -814,7 +816,7 @@ static int apply_batch(xc_interface *xch
+                 {
+                     if ( !superpages )
+                     {
+-                        ERROR("Unexpexted codepath with no superpages");
++                        DERROR(tdom, "Unexpexted codepath with no superpages");
+                         return -1;
+                     }
+ 
+@@ -830,7 +832,7 @@ static int apply_batch(xc_interface *xch
+                         if ( xc_domain_populate_physmap_exact(xch, dom, 1,
+                                          SUPERPAGE_PFN_SHIFT, 0, &supermfn) != 0 )
+                         {
+-                            // DPRINTF("No 2M page available for pfn 0x%lx, fall back to 4K page.\n",
++                            // DDPRINTF(tdom, "No 2M page available for pfn 0x%lx, fall back to 4K page.\n",
+                             //        superpage_start);
+                             /* If we're falling back from a failed allocation, subtract one
+                              * from count, since the last page == pfn, which will behandled
+@@ -839,7 +841,7 @@ static int apply_batch(xc_interface *xch
+                             goto fallback;
+                         }
+ 
+-                    // DPRINTF("Mapping superpage (%d) pfn %lx, mfn %lx\n", scount, superpage_start, supermfn);
++                    // DDPRINTF(tdom, "Mapping superpage (%d) pfn %lx, mfn %lx\n", scount, superpage_start, supermfn);
+                         for (k=0; k<scount; k++)
+                         {
+                             /* We just allocated a new mfn above; update p2m */
+@@ -854,7 +856,7 @@ static int apply_batch(xc_interface *xch
+                 }
+                 
+             fallback:
+-            // DPRINTF("Falling back %d pages pfn %lx\n", scount, superpage_start);
++            // DDPRINTF(tdom, "Falling back %d pages pfn %lx\n", scount, superpage_start);
+                 for (k=0; k<scount; k++)
+                 {
+                     ctx->p2m_batch[nr_mfns++] = superpage_start+k; 
+@@ -881,7 +883,7 @@ static int apply_batch(xc_interface *xch
+     /* Clean up any partial superpage candidates */
+     if ( superpage_start != INVALID_P2M_ENTRY )
+     {
+-        // DPRINTF("Falling back %d pages pfn %lx\n", scount, superpage_start);
++        // DDPRINTF(tdom, "Falling back %d pages pfn %lx\n", scount, superpage_start);
+         for (k=0; k<scount; k++)
+         {
+             ctx->p2m_batch[nr_mfns++] = superpage_start+k; 
+@@ -893,12 +895,12 @@ static int apply_batch(xc_interface *xch
+     /* Now allocate a bunch of mfns for this batch */
+     if ( nr_mfns )
+     {
+-        // DPRINTF("Mapping order 0,  %d; first pfn %lx\n", nr_mfns, ctx->p2m_batch[0]);
++        // DDPRINTF(tdom, "Mapping order 0,  %d; first pfn %lx\n", nr_mfns, ctx->p2m_batch[0]);
+     
+         if(xc_domain_populate_physmap_exact(xch, dom, nr_mfns, 0,
+                                             0, ctx->p2m_batch) != 0) 
+         { 
+-            ERROR("Failed to allocate memory for batch.!\n"); 
++            DERROR(tdom, "Failed to allocate memory for batch.!\n"); 
+             errno = ENOMEM;
+             return -1;
+         }
+@@ -936,7 +938,7 @@ static int apply_batch(xc_interface *xch
+ 
+     if ( region_base == NULL )
+     {
+-        PERROR("map batch failed");
++        DPERROR(tdom, "map batch failed");
+         free(pfn_err);
+         return -1;
+     }
+@@ -953,7 +955,7 @@ static int apply_batch(xc_interface *xch
+ 
+         if (pfn_err[i])
+         {
+-            ERROR("unexpected PFN mapping failure pfn %lx map_mfn %lx p2m_mfn %lx",
++            DERROR(tdom, "unexpected PFN mapping failure pfn %lx map_mfn %lx p2m_mfn %lx",
+                   pfn, region_mfn[i], ctx->p2m[pfn]);
+             goto err_mapped;
+         }
+@@ -962,7 +964,7 @@ static int apply_batch(xc_interface *xch
+ 
+         if ( pfn > dinfo->p2m_size )
+         {
+-            ERROR("pfn out of range");
++            DERROR(tdom, "pfn out of range");
+             goto err_mapped;
+         }
+ 
+@@ -999,7 +1001,7 @@ static int apply_batch(xc_interface *xch
+                     ** under live migration since the pages type may have
+                     ** changed by now (and we'll get an update later).
+                     */
+-                    DPRINTF("PT L%ld race on pfn=%08lx mfn=%08lx\n",
++                    DDPRINTF(tdom, "PT L%ld race on pfn=%08lx mfn=%08lx\n",
+                             pagetype >> 28, pfn, mfn);
+                     nraces++;
+                     continue;
+@@ -1008,7 +1010,7 @@ static int apply_batch(xc_interface *xch
+         }
+         else if ( pagetype != XEN_DOMCTL_PFINFO_NOTAB )
+         {
+-            ERROR("Bogus page type %lx page table is out of range: "
++            DERROR(tdom, "Bogus page type %lx page table is out of range: "
+                   "i=%d p2m_size=%lu", pagetype, i, dinfo->p2m_size);
+             goto err_mapped;
+         }
+@@ -1020,7 +1022,7 @@ static int apply_batch(xc_interface *xch
+             {
+                 int v;
+ 
+-                DPRINTF("************** pfn=%lx type=%lx gotcs=%08lx "
++                DDPRINTF(tdom, "************** pfn=%lx type=%lx gotcs=%08lx "
+                         "actualcs=%08lx\n", pfn, pagebuf->pfn_types[pfn],
+                         csum_page(region_base + (i + curbatch)*PAGE_SIZE),
+                         csum_page(buf));
+@@ -1030,7 +1032,7 @@ static int apply_batch(xc_interface *xch
+                     unsigned long *p = (unsigned long *)
+                         (region_base + i*PAGE_SIZE);
+                     if ( buf[v] != p[v] )
+-                        DPRINTF("    %d: %08lx %08lx\n", v, buf[v], p[v]);
++                        DDPRINTF(tdom, "    %d: %08lx %08lx\n", v, buf[v], p[v]);
+                 }
+             }
+         }
+@@ -1040,7 +1042,7 @@ static int apply_batch(xc_interface *xch
+                                (((unsigned long long)mfn) << PAGE_SHIFT)
+                                | MMU_MACHPHYS_UPDATE, pfn) )
+         {
+-            PERROR("failed machpys update mfn=%lx pfn=%lx", mfn, pfn);
++            DPERROR(tdom, "failed machpys update mfn=%lx pfn=%lx", mfn, pfn);
+             goto err_mapped;
+         }
+     } /* end of 'batch' for loop */
+@@ -1118,6 +1120,9 @@ int xc_domain_restore(xc_interface *xch,
+     static struct restore_ctx *ctx = &_ctx;
+     struct domain_info_context *dinfo = &ctx->dinfo;
+ 
++    /* Tag all errors with domain */
++    tdom=dom;
++
+     superpages = !!hvm;
+ 
+     /* Assume first checkpoint is last, unless we get a record
+@@ -1135,27 +1140,27 @@ int xc_domain_restore(xc_interface *xch,
+ 
+     if ( ctxt == NULL )
+     {
+-        PERROR("Unable to allocate VCPU ctxt buffer");
++        DPERROR(tdom, "Unable to allocate VCPU ctxt buffer");
+         return 1;
+     }
+ 
+ 
+     if ( (orig_io_fd_flags = fcntl(io_fd, F_GETFL, 0)) < 0 ) {
+-        PERROR("unable to read IO FD flags");
++        DPERROR(tdom, "unable to read IO FD flags");
+         goto out;
+     }
+ 
+     if ( RDEXACT(io_fd, &dinfo->p2m_size, sizeof(unsigned long)) )
+     {
+-        PERROR("read: p2m_size");
++        DPERROR(tdom, "read: p2m_size");
+         goto out;
+     }
+-    DPRINTF("xc_domain_restore start: p2m_size = %lx\n", dinfo->p2m_size);
++    DDPRINTF(tdom, "xc_domain_restore start: p2m_size = %lx\n", dinfo->p2m_size);
+ 
+     if ( !get_platform_info(xch, dom,
+                             &ctx->max_mfn, &ctx->hvirt_start, &ctx->pt_levels, &dinfo->guest_width) )
+     {
+-        ERROR("Unable to get platform info.");
++        DERROR(tdom, "Unable to get platform info.");
+         return 1;
+     }
+     
+@@ -1183,7 +1188,7 @@ int xc_domain_restore(xc_interface *xch,
+         frc = do_domctl(xch, &domctl);
+         if ( frc != 0 )
+         {
+-            PERROR("Unable to set guest address size.");
++	    DPERROR(tdom, "Unable to set guest address size.");
+             goto out;
+         }
+     }
+@@ -1198,7 +1203,7 @@ int xc_domain_restore(xc_interface *xch,
+     if ( (ctx->p2m == NULL) || (pfn_type == NULL) ||
+          (region_mfn == NULL) || (ctx->p2m_batch == NULL) )
+     {
+-        ERROR("memory alloc failed");
++        DERROR(tdom, "memory alloc failed");
+         errno = ENOMEM;
+         goto out;
+     }
+@@ -1213,7 +1218,7 @@ int xc_domain_restore(xc_interface *xch,
+     domctl.domain = (domid_t)dom;
+     if ( xc_domctl(xch, &domctl) < 0 )
+     {
+-        PERROR("Could not get information on new domain");
++        DPERROR(tdom, "Could not get information on new domain");
+         goto out;
+     }
+     shared_info_frame = domctl.u.getdomaininfo.shared_info_frame;
+@@ -1225,7 +1230,7 @@ int xc_domain_restore(xc_interface *xch,
+     mmu = xc_alloc_mmu_updates(xch, dom);
+     if ( mmu == NULL )
+     {
+-        PERROR("Could not initialise for MMU updates");
++        DPERROR(tdom, "Could not initialise for MMU updates");
+         goto out;
+     }
+ 
+@@ -1248,7 +1253,7 @@ int xc_domain_restore(xc_interface *xch,
+         if ( !ctx->completed ) {
+             pagebuf.nr_physpages = pagebuf.nr_pages = 0;
+             if ( pagebuf_get_one(xch, ctx, &pagebuf, io_fd, dom) < 0 ) {
+-                PERROR("Error when reading batch");
++	        DPERROR(tdom, "Error when reading batch");
+                 goto out;
+             }
+         }
+@@ -1310,11 +1315,11 @@ int xc_domain_restore(xc_interface *xch,
+      */
+     if ( !hvm && xc_flush_mmu_updates(xch, mmu) )
+     {
+-        PERROR("Error doing flush_mmu_updates()");
++        DPERROR(tdom, "Error doing flush_mmu_updates()");
+         goto out;
+     }
+ 
+-    // DPRINTF("Received all pages (%d races)\n", nraces);
++    // DDPRINTF(tdom, "Received all pages (%d races)\n", nraces);
+ 
+     if ( !ctx->completed ) {
+ 
+@@ -1343,19 +1348,19 @@ int xc_domain_restore(xc_interface *xch,
+     } else if (pagebuf.acpi_ioport_location == 0) {
+         DBGPRINTF("Use old firmware ioport from the checkpoint\n");
+     } else {
+-        ERROR("Error, unknow acpi ioport location (%i)", pagebuf.acpi_ioport_location);
++        DERROR(tdom, "Error, unknow acpi ioport location (%i)", pagebuf.acpi_ioport_location);
+     }
+ 
+     if ( ctx->last_checkpoint )
+     {
+-        // DPRINTF("Last checkpoint, finishing\n");
++        // DDPRINTF(tdom, "Last checkpoint, finishing\n");
+         goto finish;
+     }
+ 
+-    // DPRINTF("Buffered checkpoint\n");
++    // DDPRINTF(tdom, "Buffered checkpoint\n");
+ 
+     if ( pagebuf_get(xch, ctx, &pagebuf, io_fd, dom) ) {
+-        PERROR("error when buffering batch, finishing");
++        DPERROR(tdom, "error when buffering batch, finishing");
+         goto finish;
+     }
+     memset(&tmptail, 0, sizeof(tmptail));
+@@ -1413,7 +1418,7 @@ int xc_domain_restore(xc_interface *xch,
+                 new_mfn = xc_make_page_below_4G(xch, dom, ctx->p2m[i]);
+                 if ( !new_mfn )
+                 {
+-                    PERROR("Couldn't get a page below 4GB :-(");
++                    DPERROR(tdom, "Couldn't get a page below 4GB :-(");
+                     goto out;
+                 }
+ 
+@@ -1423,7 +1428,7 @@ int xc_domain_restore(xc_interface *xch,
+                                         << PAGE_SHIFT) |
+                                        MMU_MACHPHYS_UPDATE, i) )
+                 {
+-                    PERROR("Couldn't m2p on PAE root pgdir");
++                    DPERROR(tdom, "Couldn't m2p on PAE root pgdir");
+                     goto out;
+                 }
+ 
+@@ -1456,7 +1461,7 @@ int xc_domain_restore(xc_interface *xch,
+                     xch, dom, PROT_READ | PROT_WRITE, region_mfn, j);
+                 if ( region_base == NULL )
+                 {
+-                    PERROR("map batch failed");
++                    DPERROR(tdom, "map batch failed");
+                     goto out;
+                 }
+ 
+@@ -1466,7 +1471,7 @@ int xc_domain_restore(xc_interface *xch,
+                         xch, dom, ctx,
+                         region_base + k*PAGE_SIZE) )
+                     {
+-                        ERROR("failed uncanonicalize pt!");
++                        DERROR(tdom, "failed uncanonicalize pt!");
+                         goto out;
+                     }
+                 }
+@@ -1478,7 +1483,7 @@ int xc_domain_restore(xc_interface *xch,
+ 
+         if ( xc_flush_mmu_updates(xch, mmu) )
+         {
+-            PERROR("Error doing xc_flush_mmu_updates()");
++            DPERROR(tdom, "Error doing xc_flush_mmu_updates()");
+             goto out;
+         }
+     }
+@@ -1523,7 +1528,7 @@ int xc_domain_restore(xc_interface *xch,
+         {
+             if ( xc_mmuext_op(xch, pin, nr_pins, dom) < 0 )
+             {
+-                PERROR("Failed to pin batch of %d page tables", nr_pins);
++                DPERROR(tdom, "Failed to pin batch of %d page tables", nr_pins);
+                 goto out;
+             }
+             nr_pins = 0;
+@@ -1533,11 +1538,11 @@ int xc_domain_restore(xc_interface *xch,
+     /* Flush final partial batch. */
+     if ( (nr_pins != 0) && (xc_mmuext_op(xch, pin, nr_pins, dom) < 0) )
+     {
+-        PERROR("Failed to pin batch of %d page tables", nr_pins);
++        DPERROR(tdom, "Failed to pin batch of %d page tables", nr_pins);
+         goto out;
+     }
+ 
+-    DPRINTF("Memory reloaded (%ld pages)\n", ctx->nr_pfns);
++    DDPRINTF(tdom, "Memory reloaded (%ld pages)\n", ctx->nr_pfns);
+ 
+     /* Get the list of PFNs that are not in the psuedo-phys map */
+     {
+@@ -1560,11 +1565,11 @@ int xc_domain_restore(xc_interface *xch,
+         {
+             if ( (frc = xc_domain_decrease_reservation(xch, dom, nr_frees, 0, tailbuf.u.pv.pfntab)) != nr_frees )
+             {
+-                PERROR("Could not decrease reservation : %d", frc);
++                DPERROR(tdom, "Could not decrease reservation : %d", frc);
+                 goto out;
+             }
+             else
+-                DPRINTF("Decreased reservation by %d pages\n", tailbuf.u.pv.pfncount);
++                DDPRINTF(tdom, "Decreased reservation by %d pages\n", tailbuf.u.pv.pfncount);
+         }
+     }
+ 
+@@ -1578,7 +1583,7 @@ int xc_domain_restore(xc_interface *xch,
+                               : sizeof(ctxt->x32)));
+         vcpup += (dinfo->guest_width == 8) ? sizeof(ctxt->x64) : sizeof(ctxt->x32);
+ 
+-        DPRINTF("read VCPU %d\n", i);
++        DDPRINTF(tdom, "read VCPU %d\n", i);
+ 
+         if ( !new_ctxt_format )
+             SET_FIELD(ctxt, flags, GET_FIELD(ctxt, flags) | VGCF_online);
+@@ -1593,7 +1598,7 @@ int xc_domain_restore(xc_interface *xch,
+             if ( (pfn >= dinfo->p2m_size) ||
+                  (pfn_type[pfn] != XEN_DOMCTL_PFINFO_NOTAB) )
+             {
+-                ERROR("Suspend record frame number is bad");
++                DERROR(tdom, "Suspend record frame number is bad");
+                 goto out;
+             }
+             mfn = ctx->p2m[pfn];
+@@ -1614,7 +1619,7 @@ int xc_domain_restore(xc_interface *xch,
+         /* Uncanonicalise each GDT frame number. */
+         if ( GET_FIELD(ctxt, gdt_ents) > 8192 )
+         {
+-            ERROR("GDT entry count out of range");
++            DERROR(tdom, "GDT entry count out of range");
+             goto out;
+         }
+ 
+@@ -1624,7 +1629,7 @@ int xc_domain_restore(xc_interface *xch,
+             if ( (pfn >= dinfo->p2m_size) ||
+                  (pfn_type[pfn] != XEN_DOMCTL_PFINFO_NOTAB) )
+             {
+-                ERROR("GDT frame number %i (0x%lx) is bad", 
++                DERROR(tdom, "GDT frame number %i (0x%lx) is bad", 
+                       j, (unsigned long)pfn);
+                 goto out;
+             }
+@@ -1635,7 +1640,7 @@ int xc_domain_restore(xc_interface *xch,
+ 
+         if ( pfn >= dinfo->p2m_size )
+         {
+-            ERROR("PT base is bad: pfn=%lu p2m_size=%lu type=%08lx",
++            DERROR(tdom, "PT base is bad: pfn=%lu p2m_size=%lu type=%08lx",
+                   pfn, dinfo->p2m_size, pfn_type[pfn]);
+             goto out;
+         }
+@@ -1643,7 +1648,7 @@ int xc_domain_restore(xc_interface *xch,
+         if ( (pfn_type[pfn] & XEN_DOMCTL_PFINFO_LTABTYPE_MASK) !=
+              ((unsigned long)ctx->pt_levels<<XEN_DOMCTL_PFINFO_LTAB_SHIFT) )
+         {
+-            ERROR("PT base is bad. pfn=%lu nr=%lu type=%08lx %08lx",
++            DERROR(tdom, "PT base is bad. pfn=%lu nr=%lu type=%08lx %08lx",
+                   pfn, dinfo->p2m_size, pfn_type[pfn],
+                   (unsigned long)ctx->pt_levels<<XEN_DOMCTL_PFINFO_LTAB_SHIFT);
+             goto out;
+@@ -1656,14 +1661,14 @@ int xc_domain_restore(xc_interface *xch,
+             pfn = UNFOLD_CR3(ctxt->x64.ctrlreg[1] & ~1);
+             if ( pfn >= dinfo->p2m_size )
+             {
+-                ERROR("User PT base is bad: pfn=%lu p2m_size=%lu",
++                DERROR(tdom, "User PT base is bad: pfn=%lu p2m_size=%lu",
+                       pfn, dinfo->p2m_size);
+                 goto out;
+             }
+             if ( (pfn_type[pfn] & XEN_DOMCTL_PFINFO_LTABTYPE_MASK) !=
+                  ((unsigned long)ctx->pt_levels<<XEN_DOMCTL_PFINFO_LTAB_SHIFT) )
+             {
+-                ERROR("User PT base is bad. pfn=%lu nr=%lu type=%08lx %08lx",
++                DERROR(tdom, "User PT base is bad. pfn=%lu nr=%lu type=%08lx %08lx",
+                       pfn, dinfo->p2m_size, pfn_type[pfn],
+                       (unsigned long)ctx->pt_levels<<XEN_DOMCTL_PFINFO_LTAB_SHIFT);
+                 goto out;
+@@ -1677,7 +1682,7 @@ int xc_domain_restore(xc_interface *xch,
+         frc = xc_domctl(xch, &domctl);
+         if ( frc != 0 )
+         {
+-            PERROR("Couldn't build vcpu%d", i);
++            DPERROR(tdom, "Couldn't build vcpu%d", i);
+             goto out;
+         }
+ 
+@@ -1690,7 +1695,7 @@ int xc_domain_restore(xc_interface *xch,
+         frc = xc_domctl(xch, &domctl);
+         if ( frc != 0 )
+         {
+-            PERROR("Couldn't set extended vcpu%d info", i);
++            DPERROR(tdom, "Couldn't set extended vcpu%d info", i);
+             goto out;
+         }
+ 
+@@ -1709,7 +1714,7 @@ int xc_domain_restore(xc_interface *xch,
+                                            domctl.u.vcpuextstate.size);
+         if ( !buffer )
+         {
+-            PERROR("Could not allocate buffer to restore eXtended States");
++            DPERROR(tdom, "Could not allocate buffer to restore eXtended States");
+             goto out;
+         }
+         memcpy(buffer, vcpup, domctl.u.vcpuextstate.size);
+@@ -1722,7 +1727,7 @@ int xc_domain_restore(xc_interface *xch,
+         frc = xc_domctl(xch, &domctl);
+         if ( frc != 0 )
+         {
+-            PERROR("Couldn't set eXtended States for vcpu%d", i);
++            DPERROR(tdom, "Couldn't set eXtended States for vcpu%d", i);
+             goto out;
+         }
+         xc_hypercall_buffer_free(xch, buffer);
+@@ -1730,7 +1735,7 @@ int xc_domain_restore(xc_interface *xch,
+ 
+     memcpy(shared_info_page, tailbuf.u.pv.shared_info_page, PAGE_SIZE);
+ 
+-    DPRINTF("Completed checkpoint load\n");
++    DDPRINTF(tdom, "Completed checkpoint load\n");
+ 
+     /* Restore contents of shared-info page. No checking needed. */
+     new_shared_info = xc_map_foreign_range(
+@@ -1757,7 +1762,7 @@ int xc_domain_restore(xc_interface *xch,
+         pfn = p2m_frame_list[i];
+         if ( (pfn >= dinfo->p2m_size) || (pfn_type[pfn] != XEN_DOMCTL_PFINFO_NOTAB) )
+         {
+-            ERROR("PFN-to-MFN frame number %i (%#lx) is bad", i, pfn);
++            DERROR(tdom, "PFN-to-MFN frame number %i (%#lx) is bad", i, pfn);
+             goto out;
+         }
+         p2m_frame_list[i] = ctx->p2m[pfn];
+@@ -1767,7 +1772,7 @@ int xc_domain_restore(xc_interface *xch,
+     if ( !(ctx->live_p2m = xc_map_foreign_pages(xch, dom, PROT_WRITE,
+                                            p2m_frame_list, P2M_FL_ENTRIES)) )
+     {
+-        PERROR("Couldn't map p2m table");
++        DPERROR(tdom, "Couldn't map p2m table");
+         goto out;
+     }
+ 
+@@ -1783,7 +1788,7 @@ int xc_domain_restore(xc_interface *xch,
+         memcpy(ctx->live_p2m, ctx->p2m, dinfo->p2m_size * sizeof(xen_pfn_t));
+     munmap(ctx->live_p2m, P2M_FL_ENTRIES * PAGE_SIZE);
+ 
+-    DPRINTF("Domain ready to be built.\n");
++    DDPRINTF(tdom, "Domain ready to be built.\n");
+     rc = 0;
+     goto out;
+ 
+@@ -1794,23 +1799,23 @@ int xc_domain_restore(xc_interface *xch,
+          xc_clear_domain_page(xch, dom, tailbuf.u.hvm.magicpfns[1]) ||
+          xc_clear_domain_page(xch, dom, tailbuf.u.hvm.magicpfns[2]) )
+     {
+-        PERROR("error zeroing magic pages");
++        DPERROR(tdom, "error zeroing magic pages");
+         goto out;
+     }
+ #else
+     if ( xc_clear_domain_page(xch, dom, tailbuf.u.hvm.magicpfns[0]) )
+     {
+-        PERROR("error zeroing magicpfn 0 %lx", tailbuf.u.hvm.magicpfns[0]);
++        DPERROR(tdom, "error zeroing magicpfn 0 %lx", tailbuf.u.hvm.magicpfns[0]);
+         goto out;
+     }
+     if ( xc_clear_domain_page(xch, dom, tailbuf.u.hvm.magicpfns[1]) )
+     {
+-        PERROR("error zeroing magicpfn 1 %lx", tailbuf.u.hvm.magicpfns[1]);
++        DPERROR(tdom, "error zeroing magicpfn 1 %lx", tailbuf.u.hvm.magicpfns[1]);
+         goto out;
+     }
+     if ( xc_clear_domain_page(xch, dom, tailbuf.u.hvm.magicpfns[2]) )
+     {
+-        PERROR("error zeroing magicpfn 2 %lx", tailbuf.u.hvm.magicpfns[2]);
++        DPERROR(tdom, "error zeroing magicpfn 2 %lx", tailbuf.u.hvm.magicpfns[2]);
+         goto out;
+     }
+ #endif
+@@ -1827,19 +1832,19 @@ int xc_domain_restore(xc_interface *xch,
+                                     HVM_PARAM_STORE_EVTCHN,
+                                     store_evtchn)) )
+     {
+-        PERROR("error setting HVM params: %i", frc);
++        DPERROR(tdom, "error setting HVM params: %i", frc);
+         goto out;
+     }
+     *store_mfn = tailbuf.u.hvm.magicpfns[2];
+ 
+     if ( console_pfn ) {
+         if ( xc_clear_domain_page(xch, dom, console_pfn) ) {
+-            PERROR("error zeroing console page");
++            DPERROR(tdom, "error zeroing console page");
+             goto out;
+         }
+         if ( (frc = xc_set_hvm_param(xch, dom, 
+                                     HVM_PARAM_CONSOLE_PFN, console_pfn)) ) {
+-            PERROR("error setting HVM param: %i", frc);
++            DPERROR(tdom, "error setting HVM param: %i", frc);
+             goto out;
+         }
+         *console_mfn = console_pfn;
+@@ -1849,7 +1854,7 @@ int xc_domain_restore(xc_interface *xch,
+                                    tailbuf.u.hvm.reclen);
+     if ( frc )
+     {
+-        PERROR("error setting the HVM context");
++        DPERROR(tdom, "error setting the HVM context");
+         goto out;
+     }
+ 
+@@ -1875,7 +1880,7 @@ int xc_domain_restore(xc_interface *xch,
+ 
+     fcntl(io_fd, F_SETFL, orig_io_fd_flags);
+ 
+-    DPRINTF("Restore exit with rc=%d\n", rc);
++    DDPRINTF(tdom, "Restore exit with rc=%d\n", rc);
+ 
+     return rc;
+ }
+diff -r 6cbae30fecd8 tools/libxc/xc_domain_save.c
+--- a/tools/libxc/xc_domain_save.c
++++ b/tools/libxc/xc_domain_save.c
+@@ -61,6 +61,8 @@ struct outbuf {
+     size_t pos;
+ };
+ 
++static int tdom=-1;
++
+ #define OUTBUF_SIZE (16384 * 1024)
+ 
+ /* grep fodder: machine_to_phys */
+@@ -180,7 +182,7 @@ static int outbuf_init(xc_interface *xch
+     memset(ob, 0, sizeof(*ob));
+ 
+     if ( !(ob->buf = malloc(size)) ) {
+-        DPRINTF("error allocating output buffer of size %zu\n", size);
++        DDPRINTF(tdom, "error allocating output buffer of size %zu\n", size);
+         return -1;
+     }
+ 
+@@ -215,7 +217,7 @@ static int outbuf_flush(xc_interface *xc
+     rc = write(fd, ob->buf, ob->pos);
+     while (rc < 0 || cur + rc < ob->pos) {
+         if (rc < 0 && errno != EAGAIN && errno != EINTR) {
+-            DPRINTF("error flushing output: %d\n", errno);
++            DDPRINTF(tdom, "error flushing output: %d\n", errno);
+             return -1;
+         }
+         if (rc > 0)
+@@ -303,7 +305,7 @@ static int ratewrite(xc_interface *xch, 
+         {
+             burst_time_us = RATE_TO_BTU / mbit_rate;
+             ombit_rate = mbit_rate;
+-            DPRINTF("rate limit: %d mbit/s burst budget %d slot time %d\n",
++            DDPRINTF(tdom, "rate limit: %d mbit/s burst budget %d slot time %d\n",
+                     mbit_rate, BURST_BUDGET, burst_time_us);
+         }
+         if ( last_put.tv_sec == 0 )
+@@ -378,7 +380,7 @@ static int print_stats(xc_interface *xch
+     d1_cpu_now = xc_domain_get_cpu_usage(xch, domid, /* FIXME */ 0)/1000;
+ 
+     if ( (d0_cpu_now == -1) || (d1_cpu_now == -1) )
+-        DPRINTF("ARRHHH!!\n");
++        DDPRINTF(tdom, "ARRHHH!!\n");
+ 
+     wall_delta = tv_delta(&wall_now,&wall_last)/1000;
+     if ( wall_delta == 0 )
+@@ -388,7 +390,7 @@ static int print_stats(xc_interface *xch
+     d1_cpu_delta = (d1_cpu_now - d1_cpu_last)/1000;
+ 
+     if ( print )
+-        DPRINTF("delta %lldms, dom0 %d%%, target %d%%, sent %dMb/s, "
++        DDPRINTF(tdom, "delta %lldms, dom0 %d%%, target %d%%, sent %dMb/s, "
+                 "dirtied %dMb/s %" PRId32 " pages\n",
+                 wall_delta,
+                 (int)((d0_cpu_delta*100)/wall_delta),
+@@ -431,14 +433,14 @@ static int analysis_phase(xc_interface *
+ 
+         xc_shadow_control(xch, domid, XEN_DOMCTL_SHADOW_OP_CLEAN,
+                           arr, dinfo->p2m_size, NULL, 0, NULL);
+-        DPRINTF("#Flush\n");
++        DDPRINTF(tdom, "#Flush\n");
+         for ( i = 0; i < 40; i++ )
+         {
+             usleep(50000);
+             now = llgettimeofday();
+             xc_shadow_control(xch, domid, XEN_DOMCTL_SHADOW_OP_PEEK,
+                               NULL, 0, NULL, 0, &stats);
+-            DPRINTF("now= %lld faults= %"PRId32" dirty= %"PRId32"\n",
++            DDPRINTF(tdom, "now= %lld faults= %"PRId32" dirty= %"PRId32"\n",
+                     ((now-start)+500)/1000,
+                     stats.fault_count, stats.dirty_count);
+         }
+@@ -453,14 +455,14 @@ static int suspend_and_state(int (*suspe
+ {
+     if ( !(*suspend)(data) )
+     {
+-        ERROR("Suspend request failed");
++        DERROR(tdom, "Suspend request failed");
+         return -1;
+     }
+ 
+     if ( (xc_domain_getinfo(xch, dom, 1, info) != 1) ||
+          !info->shutdown || (info->shutdown_reason != SHUTDOWN_suspend) )
+     {
+-        ERROR("Domain not in suspended state");
++        DERROR(tdom, "Domain not in suspended state");
+         return -1;
+     }
+ 
+@@ -489,13 +491,13 @@ static void *map_frame_list_list(xc_inte
+ 
+     if ( fll == 0 )
+     {
+-        ERROR("Timed out waiting for frame list updated.");
++        DERROR(tdom, "Timed out waiting for frame list updated.");
+         return NULL;
+     }
+ 
+     p = xc_map_foreign_range(xch, dom, PAGE_SIZE, PROT_READ, fll);
+     if ( p == NULL )
+-        PERROR("Couldn't map p2m_frame_list_list (errno %d)", errno);
++        DPERROR(tdom, "Couldn't map p2m_frame_list_list (errno %d)", errno);
+ 
+     return p;
+ }
+@@ -641,20 +643,20 @@ xen_pfn_t *xc_map_m2p(xc_interface *xch,
+     extent_start = calloc(m2p_chunks, sizeof(xen_pfn_t));
+     if ( !extent_start )
+     {
+-        ERROR("failed to allocate space for m2p mfns");
++        DERROR(tdom, "failed to allocate space for m2p mfns");
+         goto err0;
+     }
+ 
+     if ( xc_machphys_mfn_list(xch, m2p_chunks, extent_start) )
+     {
+-        PERROR("xc_get_m2p_mfns");
++        DPERROR(tdom, "xc_get_m2p_mfns");
+         goto err1;
+     }
+ 
+     entries = calloc(m2p_chunks, sizeof(privcmd_mmap_entry_t));
+     if (entries == NULL)
+     {
+-        ERROR("failed to allocate space for mmap entries");
++        DERROR(tdom, "failed to allocate space for mmap entries");
+         goto err1;
+     }
+ 
+@@ -666,7 +668,7 @@ xen_pfn_t *xc_map_m2p(xc_interface *xch,
+ 			entries, m2p_chunks);
+     if (m2p == NULL)
+     {
+-        PERROR("xc_mmap_foreign_ranges failed");
++        DPERROR(tdom, "xc_mmap_foreign_ranges failed");
+         goto err2;
+     }
+ 
+@@ -713,7 +715,7 @@ static xen_pfn_t *map_and_save_p2m_table
+     /* Get a local copy of the live_P2M_frame_list_list */
+     if ( !(p2m_frame_list_list = malloc(PAGE_SIZE)) )
+     {
+-        ERROR("Couldn't allocate p2m_frame_list_list array");
++        DERROR(tdom, "Couldn't allocate p2m_frame_list_list array");
+         goto out;
+     }
+     memcpy(p2m_frame_list_list, live_p2m_frame_list_list, PAGE_SIZE);
+@@ -735,14 +737,14 @@ static xen_pfn_t *map_and_save_p2m_table
+                              P2M_FLL_ENTRIES);
+     if ( !live_p2m_frame_list )
+     {
+-        PERROR("Couldn't map p2m_frame_list");
++        DPERROR(tdom, "Couldn't map p2m_frame_list");
+         goto out;
+     }
+ 
+     /* Get a local copy of the live_P2M_frame_list */
+     if ( !(p2m_frame_list = malloc(P2M_TOOLS_FL_SIZE)) )
+     {
+-        ERROR("Couldn't allocate p2m_frame_list array");
++        DERROR(tdom, "Couldn't allocate p2m_frame_list array");
+         goto out;
+     }
+     memset(p2m_frame_list, 0, P2M_TOOLS_FL_SIZE);
+@@ -770,7 +772,7 @@ static xen_pfn_t *map_and_save_p2m_table
+                                P2M_FL_ENTRIES);
+     if ( !p2m )
+     {
+-        PERROR("Couldn't map p2m table");
++        DPERROR(tdom, "Couldn't map p2m table");
+         goto out;
+     }
+     ctx->live_p2m = p2m; /* So that translation macros will work */
+@@ -780,15 +782,15 @@ static xen_pfn_t *map_and_save_p2m_table
+     {
+         if ( !MFN_IS_IN_PSEUDOPHYS_MAP(p2m_frame_list[i/FPP]) )
+         {
+-            ERROR("Frame# in pfn-to-mfn frame list is not in pseudophys");
+-            ERROR("entry %d: p2m_frame_list[%ld] is 0x%"PRIx64", max 0x%lx",
++            DERROR(tdom, "Frame# in pfn-to-mfn frame list is not in pseudophys");
++            DERROR(tdom, "entry %d: p2m_frame_list[%ld] is 0x%"PRIx64", max 0x%lx",
+                   i, i/FPP, (uint64_t)p2m_frame_list[i/FPP], ctx->max_mfn);
+             if ( p2m_frame_list[i/FPP] < ctx->max_mfn ) 
+             {
+-                ERROR("m2p[0x%"PRIx64"] = 0x%"PRIx64, 
++                DERROR(tdom, "m2p[0x%"PRIx64"] = 0x%"PRIx64, 
+                       (uint64_t)p2m_frame_list[i/FPP],
+                       (uint64_t)ctx->live_m2p[p2m_frame_list[i/FPP]]);
+-                ERROR("p2m[0x%"PRIx64"] = 0x%"PRIx64, 
++                DERROR(tdom, "p2m[0x%"PRIx64"] = 0x%"PRIx64, 
+                       (uint64_t)ctx->live_m2p[p2m_frame_list[i/FPP]],
+                       (uint64_t)p2m[ctx->live_m2p[p2m_frame_list[i/FPP]]]);
+ 
+@@ -800,7 +802,7 @@ static xen_pfn_t *map_and_save_p2m_table
+ 
+     if ( xc_vcpu_getcontext(xch, dom, 0, &ctxt) )
+     {
+-        PERROR("Could not get vcpu context");
++        DPERROR(tdom, "Could not get vcpu context");
+         goto out;
+     }
+ 
+@@ -827,7 +829,7 @@ static xen_pfn_t *map_and_save_p2m_table
+         domctl.u.vcpuextstate.xfeature_mask = 0;
+         if ( xc_domctl(xch, &domctl) < 0 )
+         {
+-            PERROR("No extended context for VCPU%d", i);
++            DPERROR(tdom, "No extended context for VCPU%d", i);
+             goto out;
+         }
+         xcnt_size = domctl.u.vcpuextstate.size + 2 * sizeof(uint64_t);
+@@ -849,7 +851,7 @@ static xen_pfn_t *map_and_save_p2m_table
+                 write_exact(io_fd, &xcnt_size, 4)) :
+                 0 )
+         {
+-            PERROR("write: extended info");
++            DPERROR(tdom, "write: extended info");
+             goto out;
+         }
+     }
+@@ -857,7 +859,7 @@ static xen_pfn_t *map_and_save_p2m_table
+     if ( write_exact(io_fd, p2m_frame_list, 
+                      P2M_FL_ENTRIES * sizeof(xen_pfn_t)) )
+     {
+-        PERROR("write: p2m_frame_list");
++        DPERROR(tdom, "write: p2m_frame_list");
+         goto out;
+     }
+ 
+@@ -973,9 +975,11 @@ int xc_domain_save(xc_interface *xch, in
+ 
+     int completed = 0;
+ 
++    tdom=dom;
++
+     if ( hvm && !callbacks->switch_qemu_logdirty )
+     {
+-        ERROR("No switch_qemu_logdirty callback provided.");
++        DERROR(tdom, "No switch_qemu_logdirty callback provided.");
+         errno = EINVAL;
+         return 1;
+     }
+@@ -991,13 +995,13 @@ int xc_domain_save(xc_interface *xch, in
+     if ( !get_platform_info(xch, dom,
+                             &ctx->max_mfn, &ctx->hvirt_start, &ctx->pt_levels, &dinfo->guest_width) )
+     {
+-        ERROR("Unable to get platform info.");
++        DERROR(tdom, "Unable to get platform info.");
+         return 1;
+     }
+ 
+     if ( xc_domain_getinfo(xch, dom, 1, &info) != 1 )
+     {
+-        PERROR("Could not get domain info");
++        DPERROR(tdom, "Could not get domain info");
+         return 1;
+     }
+ 
+@@ -1010,7 +1014,7 @@ int xc_domain_save(xc_interface *xch, in
+                                            PROT_READ, shared_info_frame);
+         if ( !live_shinfo )
+         {
+-            PERROR("Couldn't map live_shinfo");
++            DPERROR(tdom, "Couldn't map live_shinfo");
+             goto out;
+         }
+     }
+@@ -1020,7 +1024,7 @@ int xc_domain_save(xc_interface *xch, in
+ 
+     if ( dinfo->p2m_size > ~XEN_DOMCTL_PFINFO_LTAB_MASK )
+     {
+-        ERROR("Cannot save this big a guest");
++        DERROR(tdom, "Cannot save this big a guest");
+         goto out;
+     }
+ 
+@@ -1045,7 +1049,7 @@ int xc_domain_save(xc_interface *xch, in
+             
+             if ( frc < 0 )
+             {
+-                PERROR("Couldn't enable shadow mode (rc %d) (errno %d)", frc, errno );
++                DPERROR(tdom, "Couldn't enable shadow mode (rc %d) (errno %d)", frc, errno );
+                 goto out;
+             }
+         }
+@@ -1053,7 +1057,7 @@ int xc_domain_save(xc_interface *xch, in
+         /* Enable qemu-dm logging dirty pages to xen */
+         if ( hvm && callbacks->switch_qemu_logdirty(dom, 1, callbacks->data) )
+         {
+-            PERROR("Couldn't enable qemu log-dirty mode (errno %d)", errno);
++            DPERROR(tdom, "Couldn't enable qemu log-dirty mode (errno %d)", errno);
+             goto out;
+         }
+     }
+@@ -1063,7 +1067,7 @@ int xc_domain_save(xc_interface *xch, in
+         if ( suspend_and_state(callbacks->suspend, callbacks->data, xch,
+                                io_fd, dom, &info) )
+         {
+-            ERROR("Domain appears not to have suspended");
++            DERROR(tdom, "Domain appears not to have suspended");
+             goto out;
+         }
+     }
+@@ -1080,7 +1084,7 @@ int xc_domain_save(xc_interface *xch, in
+ 
+     if ( !to_send || !to_fix || !to_skip )
+     {
+-        ERROR("Couldn't allocate to_send array");
++        DERROR(tdom, "Couldn't allocate to_send array");
+         goto out;
+     }
+ 
+@@ -1092,13 +1096,13 @@ int xc_domain_save(xc_interface *xch, in
+         hvm_buf_size = xc_domain_hvm_getcontext(xch, dom, 0, 0);
+         if ( hvm_buf_size == -1 )
+         {
+-            PERROR("Couldn't get HVM context size from Xen");
++            DPERROR(tdom, "Couldn't get HVM context size from Xen");
+             goto out;
+         }
+         hvm_buf = malloc(hvm_buf_size);
+         if ( !hvm_buf )
+         {
+-            ERROR("Couldn't allocate memory");
++            DERROR(tdom, "Couldn't allocate memory");
+             goto out;
+         }
+     }
+@@ -1110,7 +1114,7 @@ int xc_domain_save(xc_interface *xch, in
+     pfn_err    = malloc(MAX_BATCH_SIZE * sizeof(*pfn_err));
+     if ( (pfn_type == NULL) || (pfn_batch == NULL) || (pfn_err == NULL) )
+     {
+-        ERROR("failed to alloc memory for pfn_type and/or pfn_batch arrays");
++        DERROR(tdom, "failed to alloc memory for pfn_type and/or pfn_batch arrays");
+         errno = ENOMEM;
+         goto out;
+     }
+@@ -1120,14 +1124,14 @@ int xc_domain_save(xc_interface *xch, in
+     /* Setup the mfn_to_pfn table mapping */
+     if ( !(ctx->live_m2p = xc_map_m2p(xch, ctx->max_mfn, PROT_READ, &ctx->m2p_mfn0)) )
+     {
+-        PERROR("Failed to map live M2P table");
++        DPERROR(tdom, "Failed to map live M2P table");
+         goto out;
+     }
+ 
+     /* Start writing out the saved-domain record. */
+     if ( write_exact(io_fd, &dinfo->p2m_size, sizeof(unsigned long)) )
+     {
+-        PERROR("write: p2m_size");
++        DPERROR(tdom, "write: p2m_size");
+         goto out;
+     }
+ 
+@@ -1139,7 +1143,7 @@ int xc_domain_save(xc_interface *xch, in
+         ctx->live_p2m = map_and_save_p2m_table(xch, io_fd, dom, ctx, live_shinfo);
+         if ( ctx->live_p2m == NULL )
+         {
+-            PERROR("Failed to map/save the p2m frame list");
++            DPERROR(tdom, "Failed to map/save the p2m frame list");
+             goto out;
+         }
+ 
+@@ -1152,12 +1156,12 @@ int xc_domain_save(xc_interface *xch, in
+             mfn = pfn_to_mfn(i);
+             if( (mfn != INVALID_P2M_ENTRY) && (mfn_to_pfn(mfn) != i) )
+             {
+-                DPRINTF("i=0x%x mfn=%lx live_m2p=%lx\n", i,
++                DDPRINTF(tdom, "i=0x%x mfn=%lx live_m2p=%lx\n", i,
+                         mfn, mfn_to_pfn(mfn));
+                 err++;
+             }
+         }
+-        DPRINTF("Had %d unexplained entries in p2m table\n", err);
++        DDPRINTF(tdom, "Had %d unexplained entries in p2m table\n", err);
+     }
+ 
+     print_stats(xch, dom, 0, &stats, 0);
+@@ -1165,13 +1169,13 @@ int xc_domain_save(xc_interface *xch, in
+     tmem_saved = xc_tmem_save(xch, dom, io_fd, live, XC_SAVE_ID_TMEM);
+     if ( tmem_saved == -1 )
+     {
+-        PERROR("Error when writing to state file (tmem)");
++        DPERROR(tdom, "Error when writing to state file (tmem)");
+         goto out;
+     }
+ 
+     if ( !live && save_tsc_info(xch, dom, io_fd) < 0 )
+     {
+-        PERROR("Error when writing to state file (tsc)");
++        DPERROR(tdom, "Error when writing to state file (tsc)");
+         goto out;
+     }
+ 
+@@ -1212,7 +1216,7 @@ int xc_domain_save(xc_interface *xch, in
+                     dinfo->p2m_size, NULL, 0, NULL);
+                 if ( frc != dinfo->p2m_size )
+                 {
+-                    ERROR("Error peeking shadow bitmap");
++                    DERROR(tdom, "Error peeking shadow bitmap");
+                     goto out;
+                 }
+             }
+@@ -1227,14 +1231,14 @@ int xc_domain_save(xc_interface *xch, in
+ 
+                 if ( debug )
+                 {
+-                    DPRINTF("%d pfn= %08lx mfn= %08lx %d",
++                    DDPRINTF(tdom, "%d pfn= %08lx mfn= %08lx %d",
+                             iter, (unsigned long)n,
+                             hvm ? 0 : pfn_to_mfn(n),
+                             test_bit(n, to_send));
+                     if ( !hvm && is_mapped(pfn_to_mfn(n)) )
+-                        DPRINTF("  [mfn]= %08lx",
++                        DDPRINTF(tdom, "  [mfn]= %08lx",
+                                 mfn_to_pfn(pfn_to_mfn(n)&0xFFFFF));
+-                    DPRINTF("\n");
++                    DDPRINTF(tdom, "\n");
+                 }
+ 
+                 if ( completed )
+@@ -1309,7 +1313,7 @@ int xc_domain_save(xc_interface *xch, in
+                          !test_bit(n, to_send) )
+                     {
+                         needed_to_fix++;
+-                        DPRINTF("Fix! iter %d, pfn %x. mfn %lx\n",
++                        DDPRINTF(tdom, "Fix! iter %d, pfn %x. mfn %lx\n",
+                                 iter, n, pfn_type[batch]);
+                     }
+ 
+@@ -1326,14 +1330,14 @@ int xc_domain_save(xc_interface *xch, in
+                 xch, dom, PROT_READ, pfn_type, pfn_err, batch);
+             if ( region_base == NULL )
+             {
+-                PERROR("map batch failed");
++                DPERROR(tdom, "map batch failed");
+                 goto out;
+             }
+ 
+             /* Get page types */
+             if ( xc_get_pfn_type_batch(xch, dom, batch, pfn_type) )
+             {
+-                PERROR("get_pfn_type_batch failed");
++                DPERROR(tdom, "get_pfn_type_batch failed");
+                 goto out;
+             }
+ 
+@@ -1349,7 +1353,7 @@ int xc_domain_save(xc_interface *xch, in
+                     if ( pfn_type[j] == XEN_DOMCTL_PFINFO_XTAB )
+                         continue;
+ 
+-                    DPRINTF("map fail: page %i mfn %08lx err %d\n",
++                    DDPRINTF(tdom, "map fail: page %i mfn %08lx err %d\n",
+                             j, gmfn, pfn_err[j]);
+                     pfn_type[j] = XEN_DOMCTL_PFINFO_XTAB;
+                     continue;
+@@ -1357,7 +1361,7 @@ int xc_domain_save(xc_interface *xch, in
+ 
+                 if ( pfn_type[j] == XEN_DOMCTL_PFINFO_XTAB )
+                 {
+-                    DPRINTF("type fail: page %i mfn %08lx\n", j, gmfn);
++                    DDPRINTF(tdom, "type fail: page %i mfn %08lx\n", j, gmfn);
+                     continue;
+                 }
+ 
+@@ -1371,12 +1375,12 @@ int xc_domain_save(xc_interface *xch, in
+                 if ( debug )
+                 {
+                     if ( hvm )
+-                        DPRINTF("%d pfn=%08lx sum=%08lx\n",
++                        DDPRINTF(tdom, "%d pfn=%08lx sum=%08lx\n",
+                                 iter,
+                                 pfn_type[j],
+                                 csum_page(region_base + (PAGE_SIZE*j)));
+                     else
+-                        DPRINTF("%d pfn= %08lx mfn= %08lx [mfn]= %08lx"
++                        DDPRINTF(tdom, "%d pfn= %08lx mfn= %08lx [mfn]= %08lx"
+                                 " sum= %08lx\n",
+                                 iter,
+                                 pfn_type[j],
+@@ -1394,7 +1398,7 @@ int xc_domain_save(xc_interface *xch, in
+ 
+             if ( wrexact(io_fd, &batch, sizeof(unsigned int)) )
+             {
+-                PERROR("Error when writing to state file (2)");
++                DPERROR(tdom, "Error when writing to state file (2)");
+                 goto out;
+             }
+ 
+@@ -1403,7 +1407,7 @@ int xc_domain_save(xc_interface *xch, in
+                     ((unsigned long *)pfn_type)[j] = pfn_type[j];
+             if ( wrexact(io_fd, pfn_type, sizeof(unsigned long)*batch) )
+             {
+-                PERROR("Error when writing to state file (3)");
++                DPERROR(tdom, "Error when writing to state file (3)");
+                 goto out;
+             }
+             if ( sizeof(unsigned long) < sizeof(*pfn_type) )
+@@ -1430,7 +1434,7 @@ int xc_domain_save(xc_interface *xch, in
+                                        (char*)region_base+(PAGE_SIZE*(j-run)), 
+                                        PAGE_SIZE*run) != PAGE_SIZE*run )
+                         {
+-                            PERROR("Error when writing to state file (4a)"
++                            DPERROR(tdom, "Error when writing to state file (4a)"
+                                   " (errno %d)", errno);
+                             goto out;
+                         }                        
+@@ -1454,14 +1458,14 @@ int xc_domain_save(xc_interface *xch, in
+ 
+                     if ( race && !live )
+                     {
+-                        ERROR("Fatal PT race (pfn %lx, type %08lx)", pfn,
++                        DERROR(tdom, "Fatal PT race (pfn %lx, type %08lx)", pfn,
+                               pagetype);
+                         goto out;
+                     }
+ 
+                     if ( ratewrite(io_fd, live, page, PAGE_SIZE) != PAGE_SIZE )
+                     {
+-                        PERROR("Error when writing to state file (4b)"
++                        DPERROR(tdom, "Error when writing to state file (4b)"
+                               " (errno %d)", errno);
+                         goto out;
+                     }
+@@ -1480,7 +1484,7 @@ int xc_domain_save(xc_interface *xch, in
+                                (char*)region_base+(PAGE_SIZE*(j-run)), 
+                                PAGE_SIZE*run) != PAGE_SIZE*run )
+                 {
+-                    PERROR("Error when writing to state file (4c)"
++                    DPERROR(tdom, "Error when writing to state file (4c)"
+                           " (errno %d)", errno);
+                     goto out;
+                 }                        
+@@ -1502,9 +1506,9 @@ int xc_domain_save(xc_interface *xch, in
+         {
+             print_stats( xch, dom, sent_this_iter, &stats, 1);
+ 
+-            DPRINTF("Total pages sent= %ld (%.2fx)\n",
++            DDPRINTF(tdom, "Total pages sent= %ld (%.2fx)\n",
+                     total_sent, ((float)total_sent)/dinfo->p2m_size );
+-            DPRINTF("(of which %ld were fixups)\n", needed_to_fix  );
++            DDPRINTF(tdom, "(of which %ld were fixups)\n", needed_to_fix  );
+         }
+ 
+         if ( last_iter && debug )
+@@ -1512,12 +1516,12 @@ int xc_domain_save(xc_interface *xch, in
+             int id = XC_SAVE_ID_ENABLE_VERIFY_MODE;
+             memset(to_send, 0xff, BITMAP_SIZE);
+             debug = 0;
+-            DPRINTF("Entering debug resend-all mode\n");
++            DDPRINTF(tdom, "Entering debug resend-all mode\n");
+ 
+             /* send "-1" to put receiver into debug mode */
+             if ( wrexact(io_fd, &id, sizeof(int)) )
+             {
+-                PERROR("Error when writing to state file (6)");
++                DPERROR(tdom, "Error when writing to state file (6)");
+                 goto out;
+             }
+ 
+@@ -1534,27 +1538,27 @@ int xc_domain_save(xc_interface *xch, in
+                  (sent_this_iter+skip_this_iter < 50) ||
+                  (total_sent > dinfo->p2m_size*max_factor) )
+             {
+-                DPRINTF("Start last iteration\n");
++                DDPRINTF(tdom, "Start last iteration\n");
+                 last_iter = 1;
+ 
+                 if ( suspend_and_state(callbacks->suspend, callbacks->data,
+                                        xch, io_fd, dom, &info) )
+                 {
+-                    ERROR("Domain appears not to have suspended");
++                    DERROR(tdom, "Domain appears not to have suspended");
+                     goto out;
+                 }
+ 
+-                DPRINTF("SUSPEND shinfo %08lx\n", info.shared_info_frame);
++                DDPRINTF(tdom, "SUSPEND shinfo %08lx\n", info.shared_info_frame);
+                 if ( (tmem_saved > 0) &&
+                      (xc_tmem_save_extra(xch,dom,io_fd,XC_SAVE_ID_TMEM_EXTRA) == -1) )
+                 {
+-                        PERROR("Error when writing to state file (tmem)");
++                        DPERROR(tdom, "Error when writing to state file (tmem)");
+                         goto out;
+                 }
+ 
+                 if ( save_tsc_info(xch, dom, io_fd) < 0 )
+                 {
+-                    PERROR("Error when writing to state file (tsc)");
++                    DPERROR(tdom, "Error when writing to state file (tsc)");
+                     goto out;
+                 }
+ 
+@@ -1565,7 +1569,7 @@ int xc_domain_save(xc_interface *xch, in
+                                    XEN_DOMCTL_SHADOW_OP_CLEAN, HYPERCALL_BUFFER(to_send),
+                                    dinfo->p2m_size, NULL, 0, &stats) != dinfo->p2m_size )
+             {
+-                PERROR("Error flushing shadow PT");
++                DPERROR(tdom, "Error flushing shadow PT");
+                 goto out;
+             }
+ 
+@@ -1576,7 +1580,7 @@ int xc_domain_save(xc_interface *xch, in
+         }
+     } /* end of infinite for loop */
+ 
+-    DPRINTF("All memory is saved\n");
++    DDPRINTF(tdom, "All memory is saved\n");
+ 
+     {
+         struct {
+@@ -1587,7 +1591,7 @@ int xc_domain_save(xc_interface *xch, in
+ 
+         if ( info.max_vcpu_id >= 64 )
+         {
+-            ERROR("Too many VCPUS in guest!");
++            DERROR(tdom, "Too many VCPUS in guest!");
+             goto out;
+         }
+ 
+@@ -1602,7 +1606,7 @@ int xc_domain_save(xc_interface *xch, in
+         chunk.vcpumap = vcpumap;
+         if ( wrexact(io_fd, &chunk, sizeof(chunk)) )
+         {
+-            PERROR("Error when writing to state file");
++            DPERROR(tdom, "Error when writing to state file");
+             goto out;
+         }
+     }
+@@ -1623,7 +1627,7 @@ int xc_domain_save(xc_interface *xch, in
+         if ( (chunk.data != 0) &&
+              wrexact(io_fd, &chunk, sizeof(chunk)) )
+         {
+-            PERROR("Error when writing the ident_pt for EPT guest");
++            DPERROR(tdom, "Error when writing the ident_pt for EPT guest");
+             goto out;
+         }
+ 
+@@ -1635,7 +1639,7 @@ int xc_domain_save(xc_interface *xch, in
+         if ( (chunk.data != 0) &&
+              wrexact(io_fd, &chunk, sizeof(chunk)) )
+         {
+-            PERROR("Error when writing the vm86 TSS for guest");
++            DPERROR(tdom, "Error when writing the vm86 TSS for guest");
+             goto out;
+         }
+ 
+@@ -1647,7 +1651,7 @@ int xc_domain_save(xc_interface *xch, in
+         if ( (chunk.data != 0) &&
+              wrexact(io_fd, &chunk, sizeof(chunk)) )
+         {
+-            PERROR("Error when writing the console pfn for guest");
++            DPERROR(tdom, "Error when writing the console pfn for guest");
+             goto out;
+         }
+ 
+@@ -1658,7 +1662,7 @@ int xc_domain_save(xc_interface *xch, in
+ 
+         if ((chunk.data != 0) && wrexact(io_fd, &chunk, sizeof(chunk)))
+         {
+-            PERROR("Error when writing the firmware ioport version");
++            DPERROR(tdom, "Error when writing the firmware ioport version");
+             goto out;
+         }
+ 
+@@ -1670,7 +1674,7 @@ int xc_domain_save(xc_interface *xch, in
+         if ( (chunk.data != 0) &&
+              wrexact(io_fd, &chunk, sizeof(chunk)) )
+         {
+-            PERROR("Error when writing the viridian flag");
++            DPERROR(tdom, "Error when writing the viridian flag");
+             goto out;
+         }
+     }
+@@ -1684,7 +1688,7 @@ int xc_domain_save(xc_interface *xch, in
+         i = XC_SAVE_ID_LAST_CHECKPOINT;
+         if ( wrexact(io_fd, &i, sizeof(int)) )
+         {
+-            PERROR("Error when writing last checkpoint chunk");
++            DPERROR(tdom, "Error when writing last checkpoint chunk");
+             goto out;
+         }
+     }
+@@ -1693,7 +1697,7 @@ int xc_domain_save(xc_interface *xch, in
+     i = 0;
+     if ( wrexact(io_fd, &i, sizeof(int)) )
+     {
+-        PERROR("Error when writing to state file (6')");
++        DPERROR(tdom, "Error when writing to state file (6')");
+         goto out;
+     }
+ 
+@@ -1710,13 +1714,13 @@ int xc_domain_save(xc_interface *xch, in
+         xc_get_hvm_param(xch, dom, HVM_PARAM_STORE_PFN,
+                          (unsigned long *)&magic_pfns[2]);
+ 
+-        DPRINTF("xc_domain_save: magicpfn 0 0x%lx\n", (unsigned long)magic_pfns[0]);
+-        DPRINTF("xc_domain_save: magicpfn 1 0x%lx\n", (unsigned long)magic_pfns[1]);
+-        DPRINTF("xc_domain_save: magicpfn 2 0x%lx\n", (unsigned long)magic_pfns[2]);
++        DDPRINTF(tdom, "xc_domain_save: magicpfn 0 0x%lx\n", (unsigned long)magic_pfns[0]);
++        DDPRINTF(tdom, "xc_domain_save: magicpfn 1 0x%lx\n", (unsigned long)magic_pfns[1]);
++        DDPRINTF(tdom, "xc_domain_save: magicpfn 2 0x%lx\n", (unsigned long)magic_pfns[2]);
+ 
+         if ( wrexact(io_fd, magic_pfns, sizeof(magic_pfns)) )
+         {
+-            PERROR("Error when writing to state file (7)");
++            DPERROR(tdom, "Error when writing to state file (7)");
+             goto out;
+         }
+ 
+@@ -1724,19 +1728,19 @@ int xc_domain_save(xc_interface *xch, in
+         if ( (rec_size = xc_domain_hvm_getcontext(xch, dom, hvm_buf, 
+                                                   hvm_buf_size)) == -1 )
+         {
+-            PERROR("HVM:Could not get hvm buffer");
++            DPERROR(tdom, "HVM:Could not get hvm buffer");
+             goto out;
+         }
+         
+         if ( wrexact(io_fd, &rec_size, sizeof(uint32_t)) )
+         {
+-            PERROR("error write hvm buffer size");
++            DPERROR(tdom, "error write hvm buffer size");
+             goto out;
+         }
+         
+         if ( wrexact(io_fd, hvm_buf, rec_size) )
+         {
+-            PERROR("write HVM info failed!");
++            DPERROR(tdom, "write HVM info failed!");
+             goto out;
+         }
+         
+@@ -1760,7 +1764,7 @@ int xc_domain_save(xc_interface *xch, in
+ 
+         if ( wrexact(io_fd, &j, sizeof(unsigned int)) )
+         {
+-            PERROR("Error when writing to state file (6a)");
++            DPERROR(tdom, "Error when writing to state file (6a)");
+             goto out;
+         }
+ 
+@@ -1774,7 +1778,7 @@ int xc_domain_save(xc_interface *xch, in
+             {
+                 if ( wrexact(io_fd, &pfntab, sizeof(unsigned long)*j) )
+                 {
+-                    PERROR("Error when writing to state file (6b)");
++                    DPERROR(tdom, "Error when writing to state file (6b)");
+                     goto out;
+                 }
+                 j = 0;
+@@ -1784,7 +1788,7 @@ int xc_domain_save(xc_interface *xch, in
+ 
+     if ( xc_vcpu_getcontext(xch, dom, 0, &ctxt) )
+     {
+-        PERROR("Could not get vcpu context");
++        DPERROR(tdom, "Could not get vcpu context");
+         goto out;
+     }
+ 
+@@ -1792,7 +1796,7 @@ int xc_domain_save(xc_interface *xch, in
+     mfn = GET_FIELD(&ctxt, user_regs.edx);
+     if ( !MFN_IS_IN_PSEUDOPHYS_MAP(mfn) )
+     {
+-        ERROR("Suspend record is not in range of pseudophys map");
++        DERROR(tdom, "Suspend record is not in range of pseudophys map");
+         goto out;
+     }
+     SET_FIELD(&ctxt, user_regs.edx, mfn_to_pfn(mfn));
+@@ -1804,7 +1808,7 @@ int xc_domain_save(xc_interface *xch, in
+ 
+         if ( (i != 0) && xc_vcpu_getcontext(xch, dom, i, &ctxt) )
+         {
+-            PERROR("No context for VCPU%d", i);
++            DPERROR(tdom, "No context for VCPU%d", i);
+             goto out;
+         }
+ 
+@@ -1814,7 +1818,7 @@ int xc_domain_save(xc_interface *xch, in
+             mfn = GET_FIELD(&ctxt, gdt_frames[j]);
+             if ( !MFN_IS_IN_PSEUDOPHYS_MAP(mfn) )
+             {
+-                ERROR("GDT frame is not in range of pseudophys map");
++                DERROR(tdom, "GDT frame is not in range of pseudophys map");
+                 goto out;
+             }
+             SET_FIELD(&ctxt, gdt_frames[j], mfn_to_pfn(mfn));
+@@ -1824,7 +1828,7 @@ int xc_domain_save(xc_interface *xch, in
+         if ( !MFN_IS_IN_PSEUDOPHYS_MAP(UNFOLD_CR3(
+                                            GET_FIELD(&ctxt, ctrlreg[3]))) )
+         {
+-            ERROR("PT base is not in range of pseudophys map");
++            DERROR(tdom, "PT base is not in range of pseudophys map");
+             goto out;
+         }
+         SET_FIELD(&ctxt, ctrlreg[3], 
+@@ -1835,7 +1839,7 @@ int xc_domain_save(xc_interface *xch, in
+         {
+             if ( !MFN_IS_IN_PSEUDOPHYS_MAP(UNFOLD_CR3(ctxt.x64.ctrlreg[1])) )
+             {
+-                ERROR("PT base is not in range of pseudophys map");
++                DERROR(tdom, "PT base is not in range of pseudophys map");
+                 goto out;
+             }
+             /* Least-significant bit means 'valid PFN'. */
+@@ -1847,7 +1851,7 @@ int xc_domain_save(xc_interface *xch, in
+                                         ? sizeof(ctxt.x64) 
+                                         : sizeof(ctxt.x32))) )
+         {
+-            PERROR("Error when writing to state file (1)");
++            DPERROR(tdom, "Error when writing to state file (1)");
+             goto out;
+         }
+ 
+@@ -1856,12 +1860,12 @@ int xc_domain_save(xc_interface *xch, in
+         domctl.u.ext_vcpucontext.vcpu = i;
+         if ( xc_domctl(xch, &domctl) < 0 )
+         {
+-            PERROR("No extended context for VCPU%d", i);
++            DPERROR(tdom, "No extended context for VCPU%d", i);
+             goto out;
+         }
+         if ( wrexact(io_fd, &domctl.u.ext_vcpucontext, 128) )
+         {
+-            PERROR("Error when writing to state file (2)");
++            DPERROR(tdom, "Error when writing to state file (2)");
+             goto out;
+         }
+ 
+@@ -1874,7 +1878,7 @@ int xc_domain_save(xc_interface *xch, in
+         domctl.u.vcpuextstate.size = 0;
+         if ( xc_domctl(xch, &domctl) < 0 )
+         {
+-            PERROR("No eXtended states (XSAVE) for VCPU%d", i);
++            DPERROR(tdom, "No eXtended states (XSAVE) for VCPU%d", i);
+             goto out;
+         }
+ 
+@@ -1885,14 +1889,14 @@ int xc_domain_save(xc_interface *xch, in
+         buffer = xc_hypercall_buffer_alloc(xch, buffer, domctl.u.vcpuextstate.size);
+         if ( !buffer )
+         {
+-            PERROR("Insufficient memory for getting eXtended states for"
++            DPERROR(tdom, "Insufficient memory for getting eXtended states for"
+                    "VCPU%d", i);
+             goto out;
+         }
+         set_xen_guest_handle(domctl.u.vcpuextstate.buffer, buffer);
+         if ( xc_domctl(xch, &domctl) < 0 )
+         {
+-            PERROR("No eXtended states (XSAVE) for VCPU%d", i);
++            DPERROR(tdom, "No eXtended states (XSAVE) for VCPU%d", i);
+             xc_hypercall_buffer_free(xch, buffer);
+             goto out;
+         }
+@@ -1903,7 +1907,7 @@ int xc_domain_save(xc_interface *xch, in
+                      sizeof(domctl.u.vcpuextstate.size)) ||
+              wrexact(io_fd, buffer, domctl.u.vcpuextstate.size) )
+         {
+-            PERROR("Error when writing to state file VCPU extended state");
++            DPERROR(tdom, "Error when writing to state file VCPU extended state");
+             xc_hypercall_buffer_free(xch, buffer);
+             goto out;
+         }
+@@ -1918,14 +1922,14 @@ int xc_domain_save(xc_interface *xch, in
+               arch.pfn_to_mfn_frame_list_list, 0);
+     if ( wrexact(io_fd, page, PAGE_SIZE) )
+     {
+-        PERROR("Error when writing to state file (1)");
++        DPERROR(tdom, "Error when writing to state file (1)");
+         goto out;
+     }
+ 
+     /* Flush last write and check for errors. */
+     if ( fsync(io_fd) && errno != EINVAL )
+     {
+-        PERROR("Error when flushing state file");
++        DPERROR(tdom, "Error when flushing state file");
+         goto out;
+     }
+ 
+@@ -1940,7 +1944,7 @@ int xc_domain_save(xc_interface *xch, in
+ 
+     /* Flush last write and discard cache for file. */
+     if ( outbuf_flush(xch, &ob, io_fd) < 0 ) {
+-        PERROR("Error when flushing output buffer");
++        DPERROR(tdom, "Error when flushing output buffer");
+         rc = 1;
+     }
+ 
+@@ -1958,17 +1962,17 @@ int xc_domain_save(xc_interface *xch, in
+         if ( suspend_and_state(callbacks->suspend, callbacks->data, xch,
+                                io_fd, dom, &info) )
+         {
+-            ERROR("Domain appears not to have suspended");
++            DERROR(tdom, "Domain appears not to have suspended");
+             goto out;
+         }
+-        DPRINTF("SUSPEND shinfo %08lx\n", info.shared_info_frame);
++        DDPRINTF(tdom, "SUSPEND shinfo %08lx\n", info.shared_info_frame);
+         print_stats(xch, dom, 0, &stats, 1);
+ 
+         if ( xc_shadow_control(xch, dom,
+                                XEN_DOMCTL_SHADOW_OP_CLEAN, HYPERCALL_BUFFER(to_send),
+                                dinfo->p2m_size, NULL, 0, &stats) != dinfo->p2m_size )
+         {
+-            PERROR("Error flushing shadow PT");
++            DPERROR(tdom, "Error flushing shadow PT");
+         }
+ 
+         goto copypages;
+@@ -1982,9 +1986,9 @@ int xc_domain_save(xc_interface *xch, in
+         if ( xc_shadow_control(xch, dom, 
+                                XEN_DOMCTL_SHADOW_OP_OFF,
+                                NULL, 0, NULL, 0, NULL) < 0 )
+-            DPRINTF("Warning - couldn't disable shadow mode");
++            DDPRINTF(tdom, "Warning - couldn't disable shadow mode");
+         if ( hvm && callbacks->switch_qemu_logdirty(dom, 0, callbacks->data) )
+-            DPRINTF("Warning - couldn't disable qemu log-dirty mode");
++            DDPRINTF(tdom, "Warning - couldn't disable qemu log-dirty mode");
+     }
+ 
+     if ( live_shinfo )
+@@ -2004,7 +2008,7 @@ int xc_domain_save(xc_interface *xch, in
+     free(pfn_err);
+     free(to_fix);
+ 
+-    DPRINTF("Save exit rc=%d\n",rc);
++    DDPRINTF(tdom, "Save exit rc=%d\n",rc);
+ 
+     return !!rc;
+ }
+diff -r 6cbae30fecd8 tools/libxc/xc_private.h
+--- a/tools/libxc/xc_private.h
++++ b/tools/libxc/xc_private.h
+@@ -126,6 +126,10 @@ void xc_report_progress_step(xc_interfac
+ #define PERROR(_m, _a...) xc_report_error(xch,XC_INTERNAL_ERROR,_m \
+                   " (%d = %s)", ## _a , errno, xc_strerror(xch, errno))
+ 
++#define DDPRINTF(_d, _F, _A...) DPRINTF("d%d:" _F, _d, ## _A)
++#define DERROR(_d, _M, _A...) ERROR("d%d:" _M, _d, ## _A)
++#define DPERROR(_d, _M, _A...) PERROR("d%d:" _M, _d, ## _A)
++
+ /*
+  * HYPERCALL ARGUMENT BUFFERS
+  *

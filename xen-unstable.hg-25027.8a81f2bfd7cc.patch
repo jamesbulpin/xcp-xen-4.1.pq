@@ -1,0 +1,31 @@
+# HG changeset patch
+# User George Dunlap <george.dunlap@eu.citrix.com>
+# Date 1331655980 0
+# Node ID 8a81f2bfd7cc35e26709591df380f358faae1fbc
+# Parent  6ba199b5fd7f591dc6db3060e281986326d0d6da
+tools, build: Fix libaio Makefile to put files in $(DESTDIR)
+
+Signed-off-by: George Dunlap <george.dunlap@eu.citrix.com>
+Acked-by: Ian Jackson <ian.jackson@eu.citrix.com>
+Committed-by: Ian Jackson <ian.jackson@eu.citrix.com>
+
+diff -r 6ba199b5fd7f -r 8a81f2bfd7cc tools/libaio/src/Makefile
+--- a/tools/libaio/src/Makefile
++++ b/tools/libaio/src/Makefile
+@@ -54,11 +54,11 @@ libaio.a: $(libaio_objs)
+ 	$(CC) $(SO_CFLAGS) -Wl,--version-script=libaio.map -Wl,-soname=$(soname) -o $@ $(libaio_sobjs) $(LINK_FLAGS)
+ 
+ install: $(all_targets)
+-	install -D -m 644 libaio.h $(includedir)/libaio.h
+-	install -D -m 644 libaio.a $(libdir)/libaio.a
+-	install -D -m 755 $(libname) $(libdir)/$(libname)
+-	ln -sf $(libname) $(libdir)/$(soname)
+-	ln -sf $(libname) $(libdir)/libaio.so
++	install -D -m 644 libaio.h $(DESTDIR)$(includedir)/libaio.h
++	install -D -m 644 libaio.a $(DESTDIR)$(libdir)/libaio.a
++	install -D -m 755 $(libname) $(DESTDIR)$(libdir)/$(libname)
++	ln -sf $(libname) $(DESTDIR)$(libdir)/$(soname)
++	ln -sf $(libname) $(DESTDIR)$(libdir)/libaio.so
+ 
+ $(libaio_objs): libaio.h
+ 

@@ -1,0 +1,29 @@
+# HG changeset patch
+# User George Dunlap <george.dunlap@eu.citrix.com>
+# Date 1331106182 0
+# Node ID 9b152ebe9843c41b45953be7778c51d0e788594e
+# Parent  0f51f175fb5757cca6cb319ef3709c2ffbd26280
+build: Don't remove user-supplied xen-version during make clean
+
+xen/Makefile is designed to allow the user to supply a file named
+xen/xen-include to change the format of xen version strings.
+Unfortunately, "make clean" removes xen/xen*, which will remove this
+file.
+
+Make the clean process more targeted.
+
+Signed-off-by: George Dunlap <george.dunlap@eu.citrix.com>
+Committed-by: Keir Fraser <keir@xen.org>
+
+diff --git a/xen/Makefile b/xen/Makefile
+--- a/xen/Makefile
++++ b/xen/Makefile
+@@ -61,7 +61,7 @@ _clean: delete-unfresh-files
+ 	$(MAKE) -f $(BASEDIR)/Rules.mk -C xsm clean
+ 	$(MAKE) -f $(BASEDIR)/Rules.mk -C crypto clean
+ 	$(MAKE) -f $(BASEDIR)/Rules.mk -C arch/$(TARGET_ARCH) clean
+-	rm -f include/asm *.o $(TARGET)* *~ core
++	rm -f include/asm *.o $(TARGET) $(TARGET).gz $(TARGET)-syms *~ core
+ 	rm -f include/asm-*/asm-offsets.h
+ 	[ -d tools/figlet ] && rm -f .banner*
+ 

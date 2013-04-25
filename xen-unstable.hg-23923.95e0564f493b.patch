@@ -1,0 +1,380 @@
+
+# HG changeset patch
+# User Daniel De Graaf <dgdegra@tycho.nsa.gov>
+# Date 1317926281 -3600
+# Node ID 95e0564f493be2815c80c2371c158de62fbdaf2a
+# Parent  aea2b06769f3c7659ee1ee3601bb9bc01781665e
+libxc: add xc_gntshr_* functions
+
+These functions and the xc_gntshr device (/dev/xen/gntalloc on linux)
+allow applications to create pages shared with other domains.
+
+Signed-off-by: Daniel De Graaf <dgdegra@tycho.nsa.gov>
+Acked-by: Ian Campbell <ian.campbell@citrix.com>
+Committed-by: Ian Jackson <ian.jackson@eu.citrix.com>
+
+diff -r aea2b06769f3 -r 95e0564f493b tools/include/xen-sys/Linux/gntalloc.h
+--- /dev/null	Thu Jan 01 00:00:00 1970 +0000
++++ b/tools/include/xen-sys/Linux/gntalloc.h	Thu Oct 06 19:38:01 2011 +0100
+@@ -0,0 +1,82 @@
++/******************************************************************************
++ * gntalloc.h
++ *
++ * Interface to /dev/xen/gntalloc.
++ *
++ * Author: Daniel De Graaf <dgdegra@tycho.nsa.gov>
++ *
++ * This file is in the public domain.
++ */
++
++#ifndef __LINUX_PUBLIC_GNTALLOC_H__
++#define __LINUX_PUBLIC_GNTALLOC_H__
++
++/*
++ * Allocates a new page and creates a new grant reference.
++ */
++#define IOCTL_GNTALLOC_ALLOC_GREF \
++_IOC(_IOC_NONE, 'G', 5, sizeof(struct ioctl_gntalloc_alloc_gref))
++struct ioctl_gntalloc_alloc_gref {
++	/* IN parameters */
++	/* The ID of the domain to be given access to the grants. */
++	uint16_t domid;
++	/* Flags for this mapping */
++	uint16_t flags;
++	/* Number of pages to map */
++	uint32_t count;
++	/* OUT parameters */
++	/* The offset to be used on a subsequent call to mmap(). */
++	uint64_t index;
++	/* The grant references of the newly created grant, one per page */
++	/* Variable size, depending on count */
++	uint32_t gref_ids[1];
++};
++
++#define GNTALLOC_FLAG_WRITABLE 1
++
++/*
++ * Deallocates the grant reference, allowing the associated page to be freed if
++ * no other domains are using it.
++ */
++#define IOCTL_GNTALLOC_DEALLOC_GREF \
++_IOC(_IOC_NONE, 'G', 6, sizeof(struct ioctl_gntalloc_dealloc_gref))
++struct ioctl_gntalloc_dealloc_gref {
++	/* IN parameters */
++	/* The offset returned in the map operation */
++	uint64_t index;
++	/* Number of references to unmap */
++	uint32_t count;
++};
++
++/*
++ * Sets up an unmap notification within the page, so that the other side can do
++ * cleanup if this side crashes. Required to implement cross-domain robust
++ * mutexes or close notification on communication channels.
++ *
++ * Each mapped page only supports one notification; multiple calls referring to
++ * the same page overwrite the previous notification. You must clear the
++ * notification prior to the IOCTL_GNTALLOC_DEALLOC_GREF if you do not want it
++ * to occur.
++ */
++#define IOCTL_GNTALLOC_SET_UNMAP_NOTIFY \
++_IOC(_IOC_NONE, 'G', 7, sizeof(struct ioctl_gntalloc_unmap_notify))
++struct ioctl_gntalloc_unmap_notify {
++	/* IN parameters */
++	/* Offset in the file descriptor for a byte within the page (same as
++	 * used in mmap). If using UNMAP_NOTIFY_CLEAR_BYTE, this is the byte to
++	 * be cleared. Otherwise, it can be any byte in the page whose
++	 * notification we are adjusting.
++	 */
++	uint64_t index;
++	/* Action(s) to take on unmap */
++	uint32_t action;
++	/* Event channel to notify */
++	uint32_t event_channel_port;
++};
++
++/* Clear (set to zero) the byte specified by index */
++#define UNMAP_NOTIFY_CLEAR_BYTE 0x1
++/* Send an interrupt on the indicated event channel */
++#define UNMAP_NOTIFY_SEND_EVENT 0x2
++
++#endif /* __LINUX_PUBLIC_GNTALLOC_H__ */
+diff -r aea2b06769f3 -r 95e0564f493b tools/libxc/xc_gnttab.c
+--- a/tools/libxc/xc_gnttab.c	Thu Oct 06 19:28:53 2011 +0100
++++ b/tools/libxc/xc_gnttab.c	Thu Oct 06 19:38:01 2011 +0100
+@@ -203,6 +203,33 @@
+ 	return xcg->ops->u.gnttab.set_max_grants(xcg, xcg->ops_handle, count);
+ }
+ 
++void *xc_gntshr_share_pages(xc_gntshr *xcg, uint32_t domid,
++                            int count, uint32_t *refs, int writable)
++{
++	return xcg->ops->u.gntshr.share_pages(xcg, xcg->ops_handle, domid,
++	                                      count, refs, writable, -1, -1);
++}
++
++void *xc_gntshr_share_page_notify(xc_gntshr *xcg, uint32_t domid,
++                                  uint32_t *ref, int writable,
++                                  uint32_t notify_offset,
++                                  evtchn_port_t notify_port)
++{
++	return xcg->ops->u.gntshr.share_pages(xcg, xcg->ops_handle,
++			domid, 1, ref, writable, notify_offset, notify_port);
++}
++
++/*
++ * Unmaps the @count pages starting at @start_address, which were mapped by a
++ * call to xc_gntshr_share_*. Never logs.
++ */
++int xc_gntshr_munmap(xc_gntshr *xcg, void *start_address, uint32_t count)
++{
++	return xcg->ops->u.gntshr.munmap(xcg, xcg->ops_handle,
++					 start_address, count);
++}
++
++
+ /*
+  * Local variables:
+  * mode: C
+diff -r aea2b06769f3 -r 95e0564f493b tools/libxc/xc_linux_osdep.c
+--- a/tools/libxc/xc_linux_osdep.c	Thu Oct 06 19:28:53 2011 +0100
++++ b/tools/libxc/xc_linux_osdep.c	Thu Oct 06 19:38:01 2011 +0100
+@@ -34,6 +34,7 @@
+ #include <xen/memory.h>
+ #include <xen/sys/evtchn.h>
+ #include <xen/sys/gntdev.h>
++#include <xen/sys/gntalloc.h>
+ 
+ #include "xenctrl.h"
+ #include "xenctrlosdep.h"
+@@ -656,6 +657,105 @@
+     },
+ };
+ 
++static xc_osdep_handle linux_gntshr_open(xc_gntshr *xcg)
++{
++    int fd = open(DEVXEN "gntalloc", O_RDWR);
++
++    if ( fd == -1 )
++        return XC_OSDEP_OPEN_ERROR;
++
++    return (xc_osdep_handle)fd;
++}
++
++static int linux_gntshr_close(xc_gntshr *xcg, xc_osdep_handle h)
++{
++    int fd = (int)h;
++    return close(fd);
++}
++
++static void *linux_gntshr_share_pages(xc_gntshr *xch, xc_osdep_handle h,
++                                      uint32_t domid, int count,
++                                      uint32_t *refs, int writable,
++                                      uint32_t notify_offset,
++                                      evtchn_port_t notify_port)
++{
++    struct ioctl_gntalloc_alloc_gref *gref_info = NULL;
++    struct ioctl_gntalloc_unmap_notify notify;
++    struct ioctl_gntalloc_dealloc_gref gref_drop;
++    int fd = (int)h;
++    int err;
++    void *area = NULL;
++    gref_info = malloc(sizeof(*gref_info) + count * sizeof(uint32_t));
++    if (!gref_info)
++        return NULL;
++    gref_info->domid = domid;
++    gref_info->flags = writable ? GNTALLOC_FLAG_WRITABLE : 0;
++    gref_info->count = count;
++
++    err = ioctl(fd, IOCTL_GNTALLOC_ALLOC_GREF, gref_info);
++    if (err) {
++        PERROR("linux_gntshr_share_pages: ioctl failed");
++        goto out;
++    }
++
++    area = mmap(NULL, count * XC_PAGE_SIZE, PROT_READ | PROT_WRITE,
++        MAP_SHARED, fd, gref_info->index);
++
++    if (area == MAP_FAILED) {
++        area = NULL;
++        PERROR("linux_gntshr_share_pages: mmap failed");
++        goto out_remove_fdmap;
++    }
++
++    notify.index = gref_info->index;
++    notify.action = 0;
++    if (notify_offset >= 0) {
++        notify.index += notify_offset;
++        notify.action |= UNMAP_NOTIFY_CLEAR_BYTE;
++    }
++    if (notify_port >= 0) {
++        notify.event_channel_port = notify_port;
++        notify.action |= UNMAP_NOTIFY_SEND_EVENT;
++    }
++    if (notify.action)
++        err = ioctl(fd, IOCTL_GNTALLOC_SET_UNMAP_NOTIFY, &notify);
++    if (err) {
++        PERROR("linux_gntshr_share_page_notify: ioctl SET_UNMAP_NOTIFY failed");
++		munmap(area, count * XC_PAGE_SIZE);
++		area = NULL;
++	}
++
++    memcpy(refs, gref_info->gref_ids, count * sizeof(uint32_t));
++
++ out_remove_fdmap:
++    /* Removing the mapping from the file descriptor does not cause the pages to
++     * be deallocated until the mapping is removed.
++     */
++    gref_drop.index = gref_info->index;
++    gref_drop.count = count;
++    ioctl(fd, IOCTL_GNTALLOC_DEALLOC_GREF, &gref_drop);
++ out:
++    free(gref_info);
++    return area;
++}
++
++static int linux_gntshr_munmap(xc_gntshr *xcg, xc_osdep_handle h,
++                               void *start_address, uint32_t count)
++{
++    return munmap(start_address, count);
++}
++
++static struct xc_osdep_ops linux_gntshr_ops = {
++    .open = &linux_gntshr_open,
++    .close = &linux_gntshr_close,
++
++    .u.gntshr = {
++        .share_pages = &linux_gntshr_share_pages,
++        .munmap = &linux_gntshr_munmap,
++    },
++};
++
++
+ static struct xc_osdep_ops *linux_osdep_init(xc_interface *xch, enum xc_osdep_type type)
+ {
+     switch ( type )
+@@ -666,6 +766,8 @@
+         return &linux_evtchn_ops;
+     case XC_OSDEP_GNTTAB:
+         return &linux_gnttab_ops;
++    case XC_OSDEP_GNTSHR:
++        return &linux_gntshr_ops;
+     default:
+         return NULL;
+     }
+diff -r aea2b06769f3 -r 95e0564f493b tools/libxc/xc_private.c
+--- a/tools/libxc/xc_private.c	Thu Oct 06 19:28:53 2011 +0100
++++ b/tools/libxc/xc_private.c	Thu Oct 06 19:38:01 2011 +0100
+@@ -258,6 +258,19 @@
+     return xc_interface_close_common(xcg);
+ }
+ 
++xc_gntshr *xc_gntshr_open(xentoollog_logger *logger,
++                             unsigned open_flags)
++{
++    return xc_interface_open_common(logger, NULL, open_flags,
++                                    XC_OSDEP_GNTSHR);
++}
++
++int xc_gntshr_close(xc_gntshr *xcg)
++{
++    return xc_interface_close_common(xcg);
++}
++
++
+ static pthread_key_t errbuf_pkey;
+ static pthread_once_t errbuf_pkey_once = PTHREAD_ONCE_INIT;
+ 
+diff -r aea2b06769f3 -r 95e0564f493b tools/libxc/xenctrl.h
+--- a/tools/libxc/xenctrl.h	Thu Oct 06 19:28:53 2011 +0100
++++ b/tools/libxc/xenctrl.h	Thu Oct 06 19:38:01 2011 +0100
+@@ -115,6 +115,7 @@
+ typedef struct xc_interface_core xc_interface;
+ typedef struct xc_interface_core xc_evtchn;
+ typedef struct xc_interface_core xc_gnttab;
++typedef struct xc_interface_core xc_gntshr;
+ typedef enum xc_error_code xc_error_code;
+ 
+ 
+@@ -1403,6 +1404,53 @@
+ grant_entry_v2_t *xc_gnttab_map_table_v2(xc_interface *xch, int domid, int *gnt_num);
+ /* Sometimes these don't set errno [fixme], and sometimes they don't log. */
+ 
++/*
++ * Return an fd onto the grant sharing driver.  Logs errors.
++ */
++xc_gntshr *xc_gntshr_open(xentoollog_logger *logger,
++			  unsigned open_flags);
++
++/*
++ * Close a handle previously allocated with xc_gntshr_open().
++ * Never logs errors.
++ */
++int xc_gntshr_close(xc_gntshr *xcg);
++
++/*
++ * Creates and shares pages with another domain.
++ * 
++ * @parm xcg a handle to an open grant sharing instance
++ * @parm domid the domain to share memory with
++ * @parm count the number of pages to share
++ * @parm refs the grant references of the pages (output)
++ * @parm writable true if the other domain can write to the pages
++ * @return local mapping of the pages
++ */
++void *xc_gntshr_share_pages(xc_gntshr *xcg, uint32_t domid,
++                            int count, uint32_t *refs, int writable);
++
++/*
++ * Creates and shares a page with another domain, with unmap notification.
++ * 
++ * @parm xcg a handle to an open grant sharing instance
++ * @parm domid the domain to share memory with
++ * @parm refs the grant reference of the pages (output)
++ * @parm writable true if the other domain can write to the page
++ * @parm notify_offset The byte offset in the page to use for unmap
++ *                     notification; -1 for none.
++ * @parm notify_port The event channel port to use for unmap notify, or -1
++ * @return local mapping of the page
++ */
++void *xc_gntshr_share_page_notify(xc_gntshr *xcg, uint32_t domid,
++                                  uint32_t *ref, int writable,
++                                  uint32_t notify_offset,
++                                  evtchn_port_t notify_port);
++/*
++ * Unmaps the @count pages starting at @start_address, which were mapped by a
++ * call to xc_gntshr_share_*. Never logs.
++ */
++int xc_gntshr_munmap(xc_gntshr *xcg, void *start_address, uint32_t count);
++
+ int xc_physdev_map_pirq(xc_interface *xch,
+                         int domid,
+                         int index,
+diff -r aea2b06769f3 -r 95e0564f493b tools/libxc/xenctrlosdep.h
+--- a/tools/libxc/xenctrlosdep.h	Thu Oct 06 19:28:53 2011 +0100
++++ b/tools/libxc/xenctrlosdep.h	Thu Oct 06 19:38:01 2011 +0100
+@@ -54,6 +54,7 @@
+     XC_OSDEP_PRIVCMD,
+     XC_OSDEP_EVTCHN,
+     XC_OSDEP_GNTTAB,
++    XC_OSDEP_GNTSHR,
+ };
+ 
+ /* Opaque handle internal to the backend */
+@@ -116,6 +117,15 @@
+                           uint32_t count);
+             int (*set_max_grants)(xc_gnttab *xcg, xc_osdep_handle h, uint32_t count);
+         } gnttab;
++        struct {
++            void *(*share_pages)(xc_gntshr *xcg, xc_osdep_handle h,
++                                 uint32_t domid, int count,
++                                 uint32_t *refs, int writable,
++                                 uint32_t notify_offset,
++                                 evtchn_port_t notify_port);
++            int (*munmap)(xc_gntshr *xcg, xc_osdep_handle h,
++                          void *start_address, uint32_t count);
++        } gntshr;
+     } u;
+ };
+ typedef struct xc_osdep_ops xc_osdep_ops;
+

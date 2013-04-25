@@ -1,0 +1,126 @@
+diff --git a/tools/libxc/xc_domain_restore.c b/tools/libxc/xc_domain_restore.c
+--- a/tools/libxc/xc_domain_restore.c
++++ b/tools/libxc/xc_domain_restore.c
+@@ -84,7 +84,8 @@
+             errno = 0;
+         }
+         if ( len <= 0 ) {
+-            ERROR("read_exact_timed failed (read rc: %d, errno: %d)", len, errno);
++            ERROR("read_exact_timed failed (read rc: %d, errno: %d, size %d, offset %d)",
++                  len, errno, (int)size, (int)offset);
+             return -1;
+         }
+         offset += len;
+diff --git a/tools/libxc/xtl_logger_stdio.c b/tools/libxc/xtl_logger_stdio.c
+--- a/tools/libxc/xtl_logger_stdio.c
++++ b/tools/libxc/xtl_logger_stdio.c
+@@ -28,6 +28,12 @@
+ #include <string.h>
+ #include <stdlib.h>
+ #include <errno.h>
++#include <syslog.h>
++#include <stdio.h>
++
++#ifndef __UCLIBC__
++extern char *program_invocation_name;
++#endif
+ 
+ struct xentoollog_logger_stdiostream {
+     xentoollog_logger vtable;
+@@ -40,6 +46,43 @@
+ static void progress_erase(xentoollog_logger_stdiostream *lg) {
+     if (lg->progress_erase_len)
+         fprintf(lg->f, "\r%*s\r", lg->progress_erase_len, "");
++}
++
++#define SL_BUF_SIZE 200
++static char sl_buf[SL_BUF_SIZE];
++static int sl_index=0;
++
++static void slflush(FILE *stream)
++{
++    if ( sl_index )
++    {
++        syslog(LOG_DAEMON | LOG_INFO, "%s", sl_buf);
++        sl_index = 0;
++    }
++    if ( stream )
++        fflush(stream);
++}
++
++static int vslprintf(FILE *stream, const char *fmt, va_list ap)
++{
++    int old_sl_index = sl_index;
++
++    sl_index += vsnprintf(sl_buf + sl_index, SL_BUF_SIZE-sl_index, fmt, ap);
++
++    if ( sl_index > SL_BUF_SIZE )
++        slflush(NULL);
++
++    return fwrite(sl_buf + old_sl_index, sl_index - old_sl_index, 1, stream);
++}
++
++static int slprintf(FILE *stream, const char *fmt, ...)
++{
++    va_list ap;
++    int ret;
++    va_start(ap, fmt);
++    ret = vslprintf(stream, fmt, ap);
++    va_end(ap);
++    return ret;
+ }
+ 
+ static void stdiostream_vmessage(xentoollog_logger *logger_in,
+@@ -59,26 +102,26 @@
+         struct tm lt_buf;
+         time_t now = time(0);
+         struct tm *lt= localtime_r(&now, &lt_buf);
+-        fprintf(lg->f, "%04d-%02d-%02d %02d:%02d:%02d %s ",
++        slprintf(lg->f, "%04d-%02d-%02d %02d:%02d:%02d %s ",
+                 lt->tm_year+1900, lt->tm_mon+1, lt->tm_mday,
+                 lt->tm_hour, lt->tm_min, lt->tm_sec,
+                 tzname[daylight ? !!lt->tm_isdst : 0]);
+     }
+     if (lg->flags & XTL_STDIOSTREAM_SHOW_PID)
+-        fprintf(lg->f, "[%lu] ", (unsigned long)getpid());
++        slprintf(lg->f, "[%lu] ", (unsigned long)getpid());
+ 
+     if (context)
+-        fprintf(lg->f, "%s: ", context);
++        slprintf(lg->f, "%s: ", context);
+ 
+-    fprintf(lg->f, "%s: ", xtl_level_to_string(level));
++    slprintf(lg->f, "%s: ", xtl_level_to_string(level));
+ 
+-    vfprintf(lg->f, format, al);
++    vslprintf(lg->f, format, al);
+ 
+     if (errnoval >= 0)
+-        fprintf(lg->f, ": %s", strerror(errnoval));
++        slprintf(lg->f, ": %s", strerror(errnoval));
+ 
+-    putc('\n', lg->f);
+-    fflush(lg->f);
++    slprintf(lg->f, "\n");
++    slflush(lg->f);
+ }
+ 
+ static void stdiostream_progress(struct xentoollog_logger *logger_in,
+@@ -126,6 +169,7 @@
+     xentoollog_logger_stdiostream *lg = (void*)logger_in;
+     progress_erase(lg);
+     free(lg);
++    closelog();
+ }
+ 
+ void xtl_stdiostream_set_minlevel(xentoollog_logger_stdiostream *lg,
+@@ -152,6 +196,8 @@
+     if (newlogger.flags & XTL_STDIOSTREAM_SHOW_DATE) tzset();
+ 
+     newlogger.progress_erase_len = 0;
+-
++#ifndef __UCLIBC__
++    openlog(program_invocation_name, LOG_NOWAIT, LOG_DAEMON);
++#endif
+     return XTL_NEW_LOGGER(stdiostream, newlogger);
+ }

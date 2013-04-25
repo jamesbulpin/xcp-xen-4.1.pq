@@ -1,0 +1,59 @@
+Allow NX support to be hidden from HVM guests as a domain creation
+parameter.
+
+diff -r 12c749eedba6 xen/arch/x86/hvm/hvm.c
+--- a/xen/arch/x86/hvm/hvm.c	Mon Jun 20 16:58:29 2011 +0100
++++ b/xen/arch/x86/hvm/hvm.c	Mon Jun 20 19:00:28 2011 +0100
+@@ -1262,6 +1262,14 @@ int hvm_set_efer(uint64_t value)
+         return X86EMUL_EXCEPTION;
+     }
+ 
++    if ( (value & EFER_NX) &&
++         !(v->domain->arch.hvm_domain.params[HVM_PARAM_NX_ENABLED]) ) 
++    {
++        gdprintk(XENLOG_WARNING, "Trying to set NXE when it was disabled\n");
++        hvm_inject_exception(TRAP_gp_fault, 0, 0);
++        return X86EMUL_EXCEPTION;
++    }
++
+     if ( ((value ^ v->arch.hvm_vcpu.guest_efer) & EFER_LME) &&
+          hvm_paging_enabled(v) )
+     {
+@@ -2288,6 +2296,13 @@ void hvm_cpuid(unsigned int input, unsig
+         if ( v->domain->arch.tsc_mode != TSC_MODE_DEFAULT ||
+              !host_tsc_is_safe() )
+             *edx &= ~cpufeat_mask(X86_FEATURE_RDTSCP);
++        /* Fix up NX-disabling HVM param */
++#if CONFIG_PAGING_LEVELS >= 3
++        if ( !v->domain->arch.hvm_domain.params[HVM_PARAM_PAE_ENABLED] ||
++             !v->domain->arch.hvm_domain.params[HVM_PARAM_NX_ENABLED] )
++#endif
++            __clear_bit(X86_FEATURE_NX & 31, edx);
++
+         break;
+     }
+ }
+@@ -3203,6 +3218,10 @@ long do_hvm_op(unsigned long op, XEN_GUE
+                 iorp = &d->arch.hvm_domain.buf_ioreq;
+                 rc = hvm_set_ioreq_page(d, iorp, a.value);
+                 break;
++            case HVM_PARAM_NX_ENABLED:
++                if ( !cpu_has_nx )
++                    goto param_fail;
++                break;
+             case HVM_PARAM_CALLBACK_IRQ:
+                 hvm_set_callback_via(d, a.value);
+                 hvm_latch_shinfo_size(d);
+diff -r 12c749eedba6 xen/include/public/hvm/params.h
+--- a/xen/include/public/hvm/params.h	Mon Jun 20 16:58:29 2011 +0100
++++ b/xen/include/public/hvm/params.h	Mon Jun 20 19:00:28 2011 +0100
+@@ -61,6 +61,9 @@
+ 
+ #elif defined(__i386__) || defined(__x86_64__)
+ 
++/* Should the guest be allowed to use NX bits in page tables? */
++#define HVM_PARAM_NX_ENABLED   7
++
+ /* Expose Viridian interfaces to this HVM guest? */
+ #define HVM_PARAM_VIRIDIAN     9
+ 

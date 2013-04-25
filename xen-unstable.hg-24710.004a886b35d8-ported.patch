@@ -1,0 +1,39 @@
+
+# HG changeset patch
+# User Jan Beulich <jbeulich@suse.com>
+# Date 1328785659 -3600
+# Node ID 004a886b35d81330ca4e6c582727193fc0fdf2aa
+# Parent e504c5bc1d8d8b58be8d6b74b262564bdbfb320e
+x86: add Ivy Bridge model numbers to model specific MSR handling
+
+This is model 0x3a (decimal 58) as per the most recent SDM.
+
+In vPMU code, also add a forgotten earlier model.
+
+Signed-off-by: Jan Beulich <jbeulich@suse.com>
+Acked-by: Xiantao Zhang<xiantao.zhang@intel.com>
+
+diff -r e504c5bc1d8d xen/arch/x86/acpi/cpu_idle.c
+--- a/xen/arch/x86/acpi/cpu_idle.c
++++ b/xen/arch/x86/acpi/cpu_idle.c
+@@ -107,6 +107,8 @@ static void do_get_hw_residencies(void *
+ 
+     switch ( c->x86_model )
+     {
++    /* Ivy bridge */
++    case 0x3A:
+     /* Sandy bridge */
+     case 0x2A:
+     case 0x2D:
+diff -r e504c5bc1d8d xen/arch/x86/hvm/vmx/vmx.c
+--- a/xen/arch/x86/hvm/vmx/vmx.c
++++ b/xen/arch/x86/hvm/vmx/vmx.c
+@@ -1650,6 +1650,8 @@ static const struct lbr_info *last_branc
+         case 37: case 44: case 47:
+         /* Sandy Bridge */
+         case 42: case 45:
++        /* Ivy Bridge */
++        case 58:
+             return nh_lbr;
+             break;
+         /* Atom */

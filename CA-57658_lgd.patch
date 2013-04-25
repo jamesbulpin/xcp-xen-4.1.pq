@@ -1,0 +1,14 @@
+diff -r 98cc205a6454 xen/arch/x86/mm/paging.c
+--- a/xen/arch/x86/mm/paging.c	Thu May 05 10:45:56 2011 +0100
++++ b/xen/arch/x86/mm/paging.c	Thu May 05 11:12:15 2011 +0100
+@@ -777,6 +777,10 @@ int paging_domctl(struct domain *d, xen_
+ /* Call when destroying a domain */
+ void paging_teardown(struct domain *d)
+ {
++    /* Make sure log-dirty is turned off before trying to dismantle it. 
++     * Needs to be done here becuse it's covered by the hap/shadow lock */
++    d->arch.paging.log_dirty.disable_log_dirty(d);
++
+     if ( hap_enabled(d) )
+         hap_teardown(d);
+     else

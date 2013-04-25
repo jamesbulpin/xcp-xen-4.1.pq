@@ -1,0 +1,89 @@
+Work around RHEL5's ext2fs/ext4fs split.
+
+We need to link against a new enough version of libext2fs to be able to
+read ext4 partitions.  This is only needed because RHEL5 puts the latest
+ext2 libs in their own directory.  Other distros (and other RHELs) work
+fine already.
+
+diff -r 449222784988 tools/libfsimage/Makefile
+--- a/tools/libfsimage/Makefile	Mon Oct 10 11:58:43 2011 +0100
++++ b/tools/libfsimage/Makefile	Mon Oct 10 11:58:49 2011 +0100
+@@ -1,8 +1,15 @@
+ XEN_ROOT = $(CURDIR)/../..
+ include $(XEN_ROOT)/tools/Rules.mk
+ 
++LIBEXT_VERSION = $(shell env CC="$(CC)" ./check-libext2fs)
++
+ SUBDIRS-y = common ufs reiserfs iso9660 fat zfs
+-SUBDIRS-y += $(shell env CC="$(CC)" ./check-libext2fs)
++ifeq ($(LIBEXT_VERSION),0)
++SUBDIRS-y += ext2fs
++else
++SUBDIRS-y += ext2fs-lib
++export LIBEXT_VERSION
++endif
+ 
+ .PHONY: all clean install
+ all clean install: %: subdirs-%
+diff -r 449222784988 tools/libfsimage/check-libext2fs
+--- a/tools/libfsimage/check-libext2fs	Mon Oct 10 11:58:43 2011 +0100
++++ b/tools/libfsimage/check-libext2fs	Mon Oct 10 11:58:49 2011 +0100
+@@ -1,7 +1,11 @@
+ #!/bin/sh
+ 
+ cat >ext2-test.c <<EOF
++#ifdef V4
++#include <ext4fs/ext2fs.h>
++#else
+ #include <ext2fs/ext2fs.h>
++#endif
+ 
+ int main()
+ {
+@@ -9,11 +13,16 @@ int main()
+ }
+ EOF
+ 
++${CC-gcc} -DV4 -o ext2-test ext2-test.c -lext4fs >/dev/null 2>&1
++if [ $? = 0 ]; then
++	echo 4
++else 
+ ${CC-gcc} -o ext2-test ext2-test.c -lext2fs >/dev/null 2>&1
+ if [ $? = 0 ]; then
+-	echo ext2fs-lib
++	echo 2
+ else
+-	echo ext2fs
++	echo 0
++fi
+ fi
+ 
+ rm -f ext2-test ext2-test.c
+diff -r 449222784988 tools/libfsimage/ext2fs-lib/Makefile
+--- a/tools/libfsimage/ext2fs-lib/Makefile	Mon Oct 10 11:58:43 2011 +0100
++++ b/tools/libfsimage/ext2fs-lib/Makefile	Mon Oct 10 11:58:49 2011 +0100
+@@ -4,7 +4,8 @@ LIB_SRCS-y = ext2fs-lib.c
+ 
+ FS = ext2fs-lib
+ 
+-FS_LIBDEPS = -lext2fs
++FS_LIBDEPS = -lext$(LIBEXT_VERSION)fs
++CFLAGS += -DLIBEXT_VERSION=$(LIBEXT_VERSION)
+ 
+ .PHONY: all
+ all: fs-all
+diff -r 449222784988 tools/libfsimage/ext2fs-lib/ext2fs-lib.c
+--- a/tools/libfsimage/ext2fs-lib/ext2fs-lib.c	Mon Oct 10 11:58:43 2011 +0100
++++ b/tools/libfsimage/ext2fs-lib/ext2fs-lib.c	Mon Oct 10 11:58:49 2011 +0100
+@@ -22,7 +22,11 @@
+  */
+ 
+ #include <fsimage_plugin.h>
++#if LIBEXT_VERSION == 4
++#include <ext4fs/ext2fs.h>
++#else
+ #include <ext2fs/ext2fs.h>
++#endif
+ #include <errno.h>
+ #include <inttypes.h>
+ 

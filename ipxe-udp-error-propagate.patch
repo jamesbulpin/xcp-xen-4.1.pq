@@ -1,0 +1,17 @@
+# HG changeset patch
+# Parent 9fb88f29eadd952af3f52e277712798d7fa99b34
+diff -r 9fb88f29eadd -r 8365b16467ab tools/firmware/etherboot/ipxe-v1.0.0/src/net/udp.c
+--- a/tools/firmware/etherboot/ipxe-v1.0.0/src/net/udp.c	Tue Feb 21 14:39:21 2012 +0000
++++ b/tools/firmware/etherboot/ipxe-v1.0.0/src/net/udp.c	Tue Feb 21 19:13:01 2012 +0000
+@@ -402,10 +402,8 @@ static int udp_xfer_deliver_iob ( struct
+ 		container_of ( xfer, struct udp_connection, xfer );
+ 
+ 	/* Transmit data, if possible */
+-	udp_tx ( udp, iobuf, ( ( struct sockaddr_tcpip * ) meta->src ),
++	return udp_tx ( udp, iobuf, ( ( struct sockaddr_tcpip * ) meta->src ),
+ 		 ( ( struct sockaddr_tcpip * ) meta->dest ), meta->netdev );
+-
+-	return 0;
+ }
+ 
+ /** UDP data transfer interface operations */

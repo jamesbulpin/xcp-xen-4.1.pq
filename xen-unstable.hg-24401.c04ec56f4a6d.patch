@@ -1,0 +1,87 @@
+# HG changeset patch
+# User Miroslav Rezanina <mrezanin@redhat.com>
+# Date 1323790700 0
+# Node ID c04ec56f4a6d381bfacd31fbcaefdaa206a914f1
+# Parent  63e5005d58ca5674e790ef627e7fb3c8c66c5374
+pygrub: Allow scrolling of the list of entries
+
+When user wants to change entry in grub2 menu in pygrub, there
+may be crash of pygrub in case of editing item ('e' key).
+
+Crash on editing is caused longer entry list in case of grub2. As entry
+window is 10 lines high, it can hold only 8 entries (2 lines for border).
+Adding line outside of windows high causes crash. Patch add handling
+for longer lists and scrolling through them.
+
+Signed-off-by: Miroslav Rezanina <mrezanin@redhat.com>
+Committed-by: Ian Jackson <ian.jackson@eu.citrix.com>
+
+diff -r 63e5005d58ca -r c04ec56f4a6d tools/pygrub/src/pygrub
+--- a/tools/pygrub/src/pygrub
++++ b/tools/pygrub/src/pygrub
+@@ -221,6 +221,7 @@ class GrubLineEditor(curses.textpad.Text
+         
+ 
+ class Grub:
++    ENTRY_WIN_LINES = 8
+     def __init__(self, file, fs = None):
+         self.screen = None
+         self.entry_win = None
+@@ -238,7 +239,7 @@ class Grub:
+                 except:
+                     pass # Not important if we can't use colour
+             enable_cursor(False)
+-            self.entry_win = curses.newwin(10, 74, 2, 1)
++            self.entry_win = curses.newwin(Grub.ENTRY_WIN_LINES + 2, 74, 2, 1)
+             self.text_win = curses.newwin(10, 70, 12, 5)
+             curses.def_prog_mode()
+         
+@@ -287,12 +288,20 @@ class Grub:
+             self.text_win.noutrefresh()
+ 
+         curline = 0
++        pos = 0
+         img = copy.deepcopy(origimg)
+         while 1:
+             draw()
+             self.entry_win.erase()
+-            self.entry_win.box()
+-            for idx in range(0, len(img.lines)):
++
++            rs = 0
++            re = len(img.lines)
++            idp = 1
++            if re > Grub.ENTRY_WIN_LINES:
++                rs = curline - pos
++                re = rs + Grub.ENTRY_WIN_LINES
++
++            for idx in range(rs, re):
+                 # current line should be highlighted
+                 if idx == curline:
+                     self.entry_win.attron(curses.A_REVERSE)
+@@ -302,9 +311,11 @@ class Grub:
+                 if len(l) > 70:
+                     l = l[:69] + ">"
+                     
+-                self.entry_win.addstr(idx + 1, 2, l)
++                self.entry_win.addstr(idp, 2, l)
+                 if idx == curline:
+                     self.entry_win.attroff(curses.A_REVERSE)
++                idp += 1
++            self.entry_win.box()
+             self.entry_win.noutrefresh()
+             curses.doupdate()
+ 
+@@ -313,8 +324,12 @@ class Grub:
+                 break
+             elif c == curses.KEY_UP:
+                 curline -= 1
++                if pos > 0:
++                    pos -= 1
+             elif c == curses.KEY_DOWN:
+                 curline += 1
++                if pos < Grub.ENTRY_WIN_LINES - 1:
++                    pos += 1
+             elif c == ord('b'):
+                 self.isdone = True
+                 break

@@ -1,0 +1,14 @@
+Fix tracing init to access per-cpu datastructures safely
+
+diff -r 4061ffe03d51 xen/common/trace.c
+--- a/xen/common/trace.c	Thu Dec 23 16:16:31 2010 +0000
++++ b/xen/common/trace.c	Thu Dec 23 16:19:39 2010 +0000
+@@ -331,7 +331,7 @@ void __init init_trace_bufs(void)
+         return;
+     }
+ 
+-    for_each_online_cpu ( i )
++    for_each_possible_cpu ( i )
+         spin_lock_init(&per_cpu(t_lock, i));
+     register_cpu_notifier(&cpu_nfb);
+ 

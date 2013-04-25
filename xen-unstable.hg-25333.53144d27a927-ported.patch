@@ -1,0 +1,40 @@
+# HG changeset patch
+# User David Vrabel <david.vrabel@citrix.com>
+# Date 1337010892 -3600
+# Node ID 53144d27a9273008c8fcf20a345d13ba0d001edc
+# Parent 43b24833ea04043c07e444ecd5ba96d880ef1bf1
+x86/hvm: put value of emulated register reads into trace records
+
+The tracepoint for emulated MMIO and I/O port reads was always before
+the emulated read or write was done.  This means that for reads the
+register value in the trace record was always 0.
+
+So for reads, move the tracepoint until the register value is
+available.
+
+Signed-off-by: David Vrabel <david.vrabel@citrix.com>
+Committed-by: Keir Fraser <keir@xen.org>
+
+diff -r 43b24833ea04 xen/arch/x86/hvm/emulate.c
+--- a/xen/arch/x86/hvm/emulate.c
++++ b/xen/arch/x86/hvm/emulate.c
+@@ -153,7 +153,8 @@ static int hvmemul_do_io(
+     p->df = df;
+     p->data = value;
+ 
+-    hvmtrace_io_assist(is_mmio, p);
++    if ( dir == IOREQ_WRITE )
++        hvmtrace_io_assist(is_mmio, p);
+ 
+     if ( is_mmio )
+     {
+@@ -190,6 +191,9 @@ static int hvmemul_do_io(
+         return rc;
+ 
+  finish_access:
++    if ( dir == IOREQ_READ )
++        hvmtrace_io_assist(is_mmio, p);
++
+     if ( p_data != NULL )
+         memcpy(p_data, &curr->arch.hvm_vcpu.io_data, size);
+ 

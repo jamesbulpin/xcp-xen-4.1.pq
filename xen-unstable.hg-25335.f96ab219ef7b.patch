@@ -1,0 +1,27 @@
+
+# HG changeset patch
+# User Jan Beulich <jbeulich@suse.com>
+# Date 1337066282 -7200
+# Node ID f96ab219ef7b2520f716ff15ece6d4119f9cb33b
+# Parent  f8279258e3c96baccb8338a47af068bd650b121a
+x86: fix i8259A_resume()
+
+On systems that have an IO-APIC, we generally run the PIC in AEOI
+mode, yet i8259A_resume() so far failed to put it back into that mode.
+
+Signed-off-by: Jan Beulich <jbeulich@suse.com>
+Acked-by: Keir Fraser <keir@xen.org>
+
+diff -r f8279258e3c9 -r f96ab219ef7b xen/arch/x86/i8259.c
+--- a/xen/arch/x86/i8259.c	Mon May 14 17:15:36 2012 +0100
++++ b/xen/arch/x86/i8259.c	Tue May 15 09:18:02 2012 +0200
+@@ -314,7 +314,7 @@ static void save_ELCR(char *trigger)
+ 
+ int i8259A_resume(void)
+ {
+-    init_8259A(0);
++    init_8259A(i8259A_irq_type.ack == disable_8259A_irq);
+     restore_ELCR(irq_trigger);
+     return 0;
+ }
+

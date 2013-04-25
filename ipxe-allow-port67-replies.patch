@@ -1,0 +1,18 @@
+Accomodate PXE servers that answer port-4011 requests from port 67.
+NEC's DPM boot manager software sends responses from UDP port 67 even
+when the requests were sent to port 4011.  Relax the filter on proxy
+responses to accomodate this misbehaviour.
+
+diff -r 3684b135f658 tools/firmware/etherboot/gpxe-1.0.0/src/net/udp/dhcp.c
+--- a/tools/firmware/etherboot/ipxe-v1.0.0/src/net/udp/dhcp.c	Tue Feb 09 17:20:21 2010 +0000
++++ b/tools/firmware/etherboot/ipxe-v1.0.0/src/net/udp/dhcp.c	Tue Feb 09 17:22:57 2010 +0000
+@@ -753,7 +753,8 @@
+ 	DBGC ( dhcp, "\n" );
+ 
+ 	/* Filter out unacceptable responses */
+-	if ( peer->sin_port != htons ( PXE_PORT ) )
++	if ( ( peer->sin_port != htons ( BOOTPS_PORT ) ) &&
++	     ( peer->sin_port != htons ( PXE_PORT ) ) )
+ 		return;
+ 	if ( msgtype != DHCPACK && msgtype != DHCPOFFER )
+ 		return;

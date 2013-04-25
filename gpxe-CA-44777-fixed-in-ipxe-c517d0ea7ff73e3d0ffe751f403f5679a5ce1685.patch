@@ -1,0 +1,90 @@
+[gPXE-devel] [PATCH]: dhcp: Don't ignore duplicate offers when the dups differ by PXE options presence
+
+This fixes a regression against Altiris Rapideploy. During the DHCP
+discover stage the Rapideploy server sends a relayed offer without PXE
+options, a non-relayed offer without PXE and then a non-relayed offer
+with PXE. This is a regression from the 0.9.6 days before
+9119b0c8af15333796e02433677a54e952b1a73d and before ignoring duplicate
+DHCP offers. This regression causes the state-machine not to enter the
+proxyDHCP state and therefore prevents the PXEClient server list and
+menu from being retrieved which, in turn, prevents the boot ROM from
+operating as expected.
+
+My proposed solution is to not consider offers duplicate if they differ
+in the presence or absence of PXEClient boot options.
+
+Without this patch the afore-mentioned sequence of DHCP offers resulted
+in (OFFER, dup, dup) sequence, whereas with the patch, it results in
+(OFFER, dup, PXE-OFFER) sequence as expected. That is enough to tweak
+the state machine in to entering the ProxyDHCP state.
+
+Signed-off-by: Gianni Tedesco <gianni.tedesco at citrix.com>
+
+Note by Alex Zeffertt:
+
+This is believed to be fixed in ipxe as of c517d0ea7ff73e3d0ffe751f403f5679a5ce1685.
+
+However, we are currently using ipxe tag v1.0.0 which is from before the fork
+from gpxe.  I.e. we are using gpxe.  So we need this patch
+
+Signed-off-by: Alex Zeffertt <alex.zeffertt@eu.citrix.com>
+
+diff --git a/tools/firmware/etherboot/ipxe-v1.0.0/src/net/udp/dhcp.c b/tools/firmware/etherboot/ipxe-v1.0.0/src/net/udp/dhcp.c
+--- a/tools/firmware/etherboot/ipxe-v1.0.0/src/net/udp/dhcp.c
++++ b/tools/firmware/etherboot/ipxe-v1.0.0/src/net/udp/dhcp.c
+@@ -414,25 +414,6 @@
+ 	if ( dhcppkt->dhcphdr->yiaddr.s_addr )
+ 		DBGC ( dhcp, " for %s", inet_ntoa ( dhcppkt->dhcphdr->yiaddr ));
+ 
+-	/* Enqueue an offer to be filled in */
+-	for ( i = 0 ; i < DHCP_MAX_OFFERS ; i++ ) {
+-		if ( dhcp->offers[i].server.s_addr == server_id.s_addr ) {
+-			DBGC ( dhcp, " dup\n" );
+-			return;
+-		}
+-
+-		if ( ! dhcp->offers[i].valid )
+-			break;
+-	}
+-	if ( i == DHCP_MAX_OFFERS ) {
+-		DBGC ( dhcp, " dropped\n" );
+-		return;
+-	}
+-
+-	offer = &dhcp->offers[i];
+-	offer->server = server_id;
+-	offer->ip = dhcppkt->dhcphdr->yiaddr;
+-
+ 	/* Identify "PXEClient" vendor class */
+ 	vci_len = dhcppkt_fetch ( dhcppkt, DHCP_VENDOR_CLASS_ID,
+ 				  vci, sizeof ( vci ) );
+@@ -442,6 +423,29 @@
+ 	/* Identify presence of PXE-specific options */
+ 	pxeopts_len = dhcppkt_fetch ( dhcppkt, DHCP_PXE_BOOT_MENU, NULL, 0 );
+ 	has_pxeopts = ( pxeopts_len >= 0 );
++
++	/* Enqueue an offer to be filled in */
++	for ( i = 0 ; i < DHCP_MAX_OFFERS ; i++ ) {
++		if ( ! dhcp->offers[i].valid )
++			break;
++
++		if ( dhcp->offers[i].server.s_addr == server_id.s_addr ) {
++            if ( (has_pxeclient && has_pxeopts) ==
++				 !!(dhcp->offers[i].valid & DHCP_OFFER_PXE) ) {
++				DBGC ( dhcp, " dup\n" );
++				return;
++            }
++		}
++	}
++	if ( i == DHCP_MAX_OFFERS ) {
++		DBGC ( dhcp, " dropped\n" );
++		return;
++	}
++	
++	offer = &dhcp->offers[i];
++	offer->server = server_id;
++	offer->ip = dhcppkt->dhcphdr->yiaddr;
++	
+ 	if ( has_pxeclient )
+ 		DBGC ( dhcp, "%s", ( has_pxeopts ? " pxe" : " proxy" ) );
+ 

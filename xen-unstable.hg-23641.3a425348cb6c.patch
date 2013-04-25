@@ -1,0 +1,54 @@
+# HG changeset patch
+# User George Dunlap <george.dunlap@eu.citrix.com>
+# Date 1309548158 -3600
+# Node ID 3a425348cb6c9db84b6b6b57d6a571e71163ee07
+# Parent  4a1f7441095d1b5dea37e0b661db6b2ee4c94322
+xentrace: Make a new hardware-related trace class
+
+Power management seems a very narrow focus for its own class, of
+which we have a limited number due to the layout of the trace
+records.  Make a hardware-event trace class, and move power management
+events into a subclass of those.
+
+Signed-off-by: George Dunlap <george.dunlap@eu.citrix.com>
+
+diff --git a/xen/include/public/trace.h b/xen/include/public/trace.h
+--- a/xen/include/public/trace.h
++++ b/xen/include/public/trace.h
+@@ -38,7 +38,7 @@
+ #define TRC_MEM      0x0010f000    /* Xen memory trace         */
+ #define TRC_PV       0x0020f000    /* Xen PV traces            */
+ #define TRC_SHADOW   0x0040f000    /* Xen shadow tracing       */
+-#define TRC_PM       0x0080f000    /* Xen power management trace */
++#define TRC_HW       0x0080f000    /* Xen hardware-related traces */
+ #define TRC_GUEST    0x0800f000    /* Guest-generated traces   */
+ #define TRC_ALL      0x0ffff000
+ #define TRC_HD_TO_EVENT(x) ((x)&0x0fffffff)
+@@ -57,6 +57,9 @@
+ #define TRC_SCHED_CLASS     0x00022000   /* Scheduler-specific    */
+ #define TRC_SCHED_VERBOSE   0x00028000   /* More inclusive scheduling */
+ 
++/* Trace classes for Hardware */
++#define TRC_HW_PM           0x00801000   /* Power management traces */
++
+ /* Trace events per class */
+ #define TRC_LOST_RECORDS        (TRC_GEN + 1)
+ #define TRC_TRACE_WRAP_BUFFER  (TRC_GEN + 2)
+@@ -165,14 +168,10 @@
+ #define TRC_HVM_IOPORT_WRITE    (TRC_HVM_HANDLER + 0x216)
+ #define TRC_HVM_IOMEM_WRITE     (TRC_HVM_HANDLER + 0x217)
+ 
+-/* trace subclasses for power management */
+-#define TRC_PM_FREQ     0x00801000      /* xen cpu freq events */
+-#define TRC_PM_IDLE     0x00802000      /* xen cpu idle events */
+-
+ /* trace events for per class */
+-#define TRC_PM_FREQ_CHANGE      (TRC_PM_FREQ + 0x01)
+-#define TRC_PM_IDLE_ENTRY       (TRC_PM_IDLE + 0x01)
+-#define TRC_PM_IDLE_EXIT        (TRC_PM_IDLE + 0x02)
++#define TRC_PM_FREQ_CHANGE      (TRC_HW_PM + 0x01)
++#define TRC_PM_IDLE_ENTRY       (TRC_HW_PM + 0x02)
++#define TRC_PM_IDLE_EXIT        (TRC_HW_PM + 0x03)
+ 
+ /* This structure represents a single trace buffer record. */
+ struct t_rec {

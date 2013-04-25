@@ -1,0 +1,37 @@
+# HG changeset patch
+# User Andrew Cooper <andrew.cooper3@citrix.com>
+# Date 1336393948 -3600
+# Node ID 15246e0ef818c1508816533ef3e4397ee7ece548
+# Parent  b9eac81e8564f67cd2157f7d4f805e1b7c868996
+kexec: clear notes during setup
+
+Explicity zero the memory backing the crash notes during setup.
+
+This allows the crash environment to be rather more certain whether
+the crash notes were actually written, rather than trusting that the
+memory was clear beforehand.
+
+Signed-off-by: Andrew Cooper <andrew.cooper3@citrix.com>
+Committed-by: Keir Fraser <keir@xen.org>
+
+diff -r b9eac81e8564 -r 15246e0ef818 xen/common/kexec.c
+--- a/xen/common/kexec.c	Mon May 07 10:13:15 2012 +0200
++++ b/xen/common/kexec.c	Mon May 07 13:32:28 2012 +0100
+@@ -401,7 +401,7 @@ static int kexec_init_cpu_notes(const un
+ 
+     /* If we dont care about the position of allocation, malloc. */
+     if ( low_crashinfo_mode == LOW_CRASHINFO_NONE )
+-        note = xmalloc_bytes(nr_bytes);
++        note = xzalloc_bytes(nr_bytes);
+ 
+     /* Protect the write into crash_notes[] with a spinlock, as this function
+      * is on a hotplug path and a hypercall path. */
+@@ -520,6 +520,8 @@ static int __init kexec_init(void)
+         if ( ! crash_heap_current )
+             return -ENOMEM;
+ 
++        memset(crash_heap_current, 0, crash_heap_size);
++
+         crash_heap_end = crash_heap_current + crash_heap_size;
+     }
+ 

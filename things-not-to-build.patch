@@ -1,0 +1,15 @@
+Prune the build to remove things we don't use.
+They take up time, and are not tested so liable to be broken:
+
+diff -r bc42a006f229 tools/xenstore/Makefile
+--- a/tools/xenstore/Makefile	Fri Jan 20 12:06:45 2012 +0000
++++ b/tools/xenstore/Makefile	Fri Jan 20 12:07:34 2012 +0000
+@@ -9,7 +9,7 @@ CFLAGS += -I.
+ CFLAGS += $(CFLAGS_libxenctrl)
+ 
+ CLIENTS := xenstore-exists xenstore-list xenstore-read xenstore-rm xenstore-chmod
+-CLIENTS += xenstore-write xenstore-ls xenstore-watch
++CLIENTS += xenstore-write xenstore-ls
+ 
+ XENSTORED_OBJS = xenstored_core.o xenstored_watch.o xenstored_domain.o xenstored_transaction.o xs_lib.o talloc.o utils.o tdb.o hashtable.o
+ 

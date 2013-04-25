@@ -1,0 +1,29 @@
+# HG changeset patch
+# User Miroslav Rezanina <mrezanin@redhat.com>
+# Date 1323790768 0
+# Node ID 983b551e44077ace454a397181c93533e0a534b5
+# Parent  c04ec56f4a6d381bfacd31fbcaefdaa206a914f1
+pygrub: Fix "a" entry editing in grub2
+
+When user wants to change entry in grub2 menu in pygrub, there's no
+response in case of appending command line arguments ('a' key).
+
+Append malfunction is caused by change of keyword used for kernel
+record. Grub uses 'kernel' for line with linux kernel but grub2 uses
+'linux' instead. This patch adds checking for both grub 1 and 2 keywords.
+
+Signed-off-by: Miroslav Rezanina <mrezanin@redhat.com>
+Committed-by: Ian Jackson <ian.jackson@eu.citrix.com>
+
+diff -r c04ec56f4a6d -r 983b551e4407 tools/pygrub/src/pygrub
+--- a/tools/pygrub/src/pygrub
++++ b/tools/pygrub/src/pygrub
+@@ -522,7 +522,7 @@ class Grub:
+                 # find the kernel line, edit it and then boot
+                 img = self.cf.images[self.selected_image]
+                 for line in img.lines:
+-                    if line.startswith("kernel"):
++                    if line.startswith("kernel") or line.startswith("linux"):
+                         l = self.edit_line(line)
+                         if l is not None:
+                             img.set_from_line(l, replace = True)

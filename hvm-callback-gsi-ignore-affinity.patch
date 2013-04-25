@@ -1,0 +1,61 @@
+Arrange that the event channel callback interrupt always goes to the
+lowest vcpu in the affinity mask specified by the guest. This should
+hopefully be vcpu 0 in most cases, but it occasionally vcpu 0 is not
+present in the mask.
+
+diff -r ede8fa931b68 xen/arch/x86/hvm/vioapic.c
+--- a/xen/arch/x86/hvm/vioapic.c	Thu Jul 29 10:18:06 2010 +0100
++++ b/xen/arch/x86/hvm/vioapic.c	Thu Jul 29 10:40:49 2010 +0100
+@@ -275,6 +275,28 @@ static inline int pit_channel0_enabled(v
+     return pt_active(&pit->pt0);
+ }
+ 
++static int is_platform_irq(struct hvm_hw_vioapic *vioapic, int irq)
++{
++    struct domain *d = vioapic_domain(vioapic);
++    struct hvm_irq *hvm_irq = &d->arch.hvm_domain.irq;
++    unsigned int pdev, pintx;
++
++    switch ( hvm_irq->callback_via_type )
++    {
++    case HVMIRQ_callback_none:
++        return 0;
++    case HVMIRQ_callback_gsi:
++        return irq == hvm_irq->callback_via.gsi;
++    case HVMIRQ_callback_pci_intx:
++        pdev  = hvm_irq->callback_via.pci.dev;
++        pintx = hvm_irq->callback_via.pci.intx;
++        return irq == hvm_pci_intx_gsi(pdev, pintx);
++    case HVMIRQ_callback_vector:
++        return 0;
++    }
++    return 0;
++}
++
+ static void vioapic_deliver(struct hvm_hw_vioapic *vioapic, int irq)
+ {
+     uint16_t dest = vioapic->redirtbl[irq].fields.dest_id;
+@@ -306,6 +328,23 @@ static void vioapic_deliver(struct hvm_h
+         }
+         else
+ #endif
++        if ( is_platform_irq(vioapic, irq) )
++        {
++            /* Pick the lowest _numbered_ matching vCPU, which should
++             * hopefully be vCPU 0 but may not be in certain
++             * circumstances. */
++            target = NULL;
++            for_each_vcpu ( d, v )
++            {
++                if ( vlapic_match_dest(vcpu_vlapic(v), NULL,
++                                       0, dest, dest_mode) )
++                {
++                    target = vcpu_vlapic(v);
++                    break;
++                }
++            }
++        }
++        else
+             target = vlapic_lowest_prio(d, NULL, 0, dest, dest_mode);
+         if ( target != NULL )
+         {

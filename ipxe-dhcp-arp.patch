@@ -1,0 +1,25 @@
+# HG changeset patch
+# Parent 2d4287dfd071c1c0e5008fe52ea54662b325628d
+
+proxyDHCP acks came only for PXE_PORT so filter wrong packets correctly
+
+Actually this is a problem cause if you get 2 acks from normal DHCP requests
+second one was considered as proxyDHCP reply leading to an error.
+
+This fix a customer problem with Altirix server (see SCTX-988).
+
+Same fix is already present in iPXE git code.
+
+diff -r 2d4287dfd071 tools/firmware/etherboot/ipxe-v1.0.0/src/net/udp/dhcp.c
+--- a/tools/firmware/etherboot/ipxe-v1.0.0/src/net/udp/dhcp.c	Thu May 10 09:13:34 2012 +0100
++++ b/tools/firmware/etherboot/ipxe-v1.0.0/src/net/udp/dhcp.c	Fri May 18 15:47:06 2012 +0100
+@@ -766,8 +766,7 @@ static void dhcp_proxy_rx ( struct dhcp_
+ 	DBGC ( dhcp, "\n" );
+ 
+ 	/* Filter out unacceptable responses */
+-	if ( ( peer->sin_port != htons ( BOOTPS_PORT ) ) &&
+-	     ( peer->sin_port != htons ( PXE_PORT ) ) )
++	if ( peer->sin_port != htons ( PXE_PORT ) )
+ 		return;
+ 	if ( msgtype != DHCPACK && msgtype != DHCPOFFER )
+ 		return;

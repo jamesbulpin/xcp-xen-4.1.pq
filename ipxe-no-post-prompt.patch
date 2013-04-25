@@ -1,0 +1,51 @@
+Disable gPXE's POST-time prompt.
+gPXE has two prompts, one at PXE-boot time and one earlier at POST time,
+to allow the user to break into gPXE even if it's not going to be used.
+We don't want the first one at all.
+
+diff -r 336b233edc7f tools/firmware/etherboot/gpxe-1.0.0/src/arch/i386/prefix/romprefix.S
+--- a/tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/prefix/romprefix.S	Tue Feb 09 17:15:29 2010 +0000
++++ b/tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/prefix/romprefix.S	Tue Feb 09 17:17:12 2010 +0000
+@@ -458,32 +458,6 @@
+ 	xorw	%di, %di
+ 	cs rep	movsb
+ 
+-	/* Prompt for POST-time shell */
+-	movw	$init_message_prompt, %si
+-	xorw	%di, %di
+-	call	print_message
+-	movw	$prodstr, %si
+-	call	print_message
+-	movw	$init_message_dots, %si
+-	call	print_message
+-	/* Wait for Ctrl-B */
+-	movw	$0xff02, %bx
+-	call	wait_for_key
+-	/* Clear prompt */
+-	pushf
+-	xorw	%di, %di
+-	call	print_kill_line
+-	movw	$init_message_done, %si
+-	call	print_message
+-	popf
+-	jnz	out
+-	/* Ctrl-B was pressed: invoke gPXE.  The keypress will be
+-	 * picked up by the initial shell prompt, and we will drop
+-	 * into a shell.
+-	 */
+-	pushw	%cs
+-	call	exec
+-out:
+ 	/* Restore registers */
+ 	popw	%gs
+ 	popw	%fs
+@@ -538,9 +512,6 @@
+ init_message_int19:
+ 	.asciz	" INT19"
+ 	.size	init_message_int19, . - init_message_int19
+-init_message_prompt:
+-	.asciz	"\nPress Ctrl-B to configure "
+-	.size	init_message_prompt, . - init_message_prompt
+ init_message_dots:
+ 	.asciz	"..."
+ 	.size	init_message_dots, . - init_message_dots

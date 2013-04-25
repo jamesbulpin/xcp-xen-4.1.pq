@@ -1,0 +1,49 @@
+# HG changeset patch
+# Parent bc8139bf3e30bf5d184183cd7ed0bb3dbee7b48f
+libxl: Add libxl components back into RPM spec
+
+diff -r bc8139bf3e30 mk/xen-4.1.spec.in
+--- a/mk/xen-4.1.spec.in	Wed Feb 29 17:42:08 2012 +0000
++++ b/mk/xen-4.1.spec.in	Wed Feb 29 18:05:16 2012 +0000
+@@ -134,6 +134,9 @@ rm -rf $RPM_BUILD_ROOT
+ %{_bindir}/xenstore-*
+ %{_bindir}/xentrace*
+ %{_bindir}/xen-detect
++%{_sysconfdir}/bash_completion.d/xl.sh
++%{_sysconfdir}/xen/xl.conf
++%{_sbindir}/xl
+ %{_sbindir}/xenpaging
+ %{_sbindir}/xen-hvmctx
+ %{_sbindir}/kdd
+@@ -154,6 +157,8 @@ rm -rf $RPM_BUILD_ROOT
+ %{_libdir}/libxenctrl*.so.*
+ %{_libdir}/libxenguest*.so.*
+ %{_libdir}/libxenstore*.so.*
++%{_libdir}/libxenlight*.so.*
++%{_libdir}/libxlutil*.so.*
+ %{_libdir}/libfsimage*.so.*
+ %{_libdir}/fs/*/*.so
+ %{_libdir}/%{name}/bin/readnotes
+@@ -186,10 +191,14 @@ rm -rf $RPM_BUILD_ROOT
+ %{_libdir}/libxenctrl*.a
+ %{_libdir}/libxenguest*.a
+ %{_libdir}/libxenstore*.a
++%{_libdir}/libxenlight*.a
++%{_libdir}/libxlutil*.a
+ %{_libdir}/libxenctrl*.so
+ %{_libdir}/libxenguest*.so
+ %{_libdir}/libxenstore*.so
+ %{_libdir}/libfsimage*.so
++%{_libdir}/libxenlight*.so
++%{_libdir}/libxlutil*.so
+ %{_libdir}/ocaml
+ %{_includedir}/%{name}/*.h
+ %{_includedir}/%{name}/*/*.h
+@@ -203,4 +212,7 @@ rm -rf $RPM_BUILD_ROOT
+ %{_includedir}/xenguest.h
+ %{_includedir}/xs.h
+ %{_includedir}/xs_lib.h
++%{_includedir}/libxl.h
++%{_includedir}/libxl_uuid.h
++%{_includedir}/_libxl_types.h
+ %changelog

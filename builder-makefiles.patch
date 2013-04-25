@@ -1,0 +1,520 @@
+Add the master makefiles that the XS/XCP build system will call into
+and the RPM spec files that the builder uses to package Xen and tools.
+
+diff -r 482285455497 .hgignore
+--- a/.hgignore
++++ b/.hgignore
+@@ -18,6 +18,7 @@
+ .*/a\.out$
+ .*/Modules\.symvers$
+ .*/cscope\..*$
++.*\.ccache.*
+ ^cscope.*$
+ ^[^/]*\.bz2$
+ ^\.config$
+diff -r 482285455497 mk/Makefile
+--- /dev/null
++++ b/mk/Makefile
+@@ -0,0 +1,179 @@
++USE_BRANDING := yes
++IMPORT_BRANDING := yes
++# makefile for xen component in build system
++include $(B_BASE)/common.mk
++include $(B_BASE)/rpmbuild.mk
++
++REPO_NAME= xen-4.1
++XEN_DOCDIR=/usr/share/doc/xen
++RPM_BUILD_COOKIE= $(MY_OBJ_DIR)/.rpm_build_cookie
++SYNC_COOKIE= $(call hg_sync_dep,$(REPO_NAME))
++REPO_STAMP = $(call pq_req,$(REPO_NAME))
++REPO = $(call hg_sync,$(REPO_NAME))
++
++export CONFIG_QEMU=$(call pq_loc,qemu-xen-3.4)
++
++J_FLAG = 8
++MAKE_CMD= $(MAKE) -j$(J_FLAG) -C $(REPO) LINUX_SRC_PATH=$(CARBON_KERNELS)
++
++32ON64 := y
++PAE := y
++
++INSTALLER_FILES_COOKIE = $(MY_OBJ_DIR)/.installer-files.cookie
++CDFILES_COOKIE = $(MY_OBJ_DIR)/.cdfiles.cookie
++PAE_HV_COOKIE = $(MY_OBJ_DIR)/.pae-hv.cookie
++
++-include $(MY_OBJ_DIR)/version.inc
++$(MY_OBJ_DIR)/version.inc:
++	rm -f $(MY_OBJ_DIR)/version.inc
++	$(call version-makefile) >> $@
++	awk -F. '{ print "REPO_VERSION=" $$0; }' \
++		< $(REPO_STAMP) >> $@
++	$(call pq_cset_number,$(REPO_NAME)) >> $@
++	echo XEN_VERSION := `$(MAKE) -C $(call pq_loc,$(REPO_NAME)) --no-print-directory xenversion` >> $@
++	echo XEN_RELEASE := '$$(PLATFORM_VERSION).$$(CSET_NUMBER)' >> $@
++
++GDB_VERSION := 6.2.1
++ZLIB_VERSION := 1.2.3
++LIBPCI_VERSION := 2.2.9
++NEWLIB_VERSION := 1.16.0
++LWIP_VERSION := 1.3.0
++GRUB_VERSION := 0.97
++LIBCONFIG_VERSION := 1.3.2
++
++CHANGELOG_DATE    := $(shell LANG=C date +"%a %b %d %Y")
++CHANGELOG_USER    := $(COMPANY_NAME) <$(COMPANY_WEBSITE)>
++CHANGELOG_HEADER  := * $(CHANGELOG_DATE) $(CHANGELOG_USER) [$(XEN_VERSION) $(XEN_RELEASE)]
++CHANGELOG_MESSAGE := - Build Xen hypervisor.
++
++BASE_CSET_STR := $(shell hg log -r qparent --template "{rev}:{node|short}")
++PQ_CSET_STR   := $(shell hg log -R `hg root`/.hg/patches -r tip --template "{rev}:{node|short}")
++XEN_CHANGESET := "$(BASE_CSET_STR), pq $(PQ_CSET_STR)"
++
++.PHONY: build
++build: $(RPM_BUILD_COOKIE) $(BRANDING) $(MY_OUTPUT_DIR)/xen.inc \
++       $(INSTALLER_FILES_COOKIE) $(CDFILES_COOKIE) $(MY_SOURCES)/MANIFEST
++	@ :
++
++# Xen packages
++
++SOURCES = $(RPM_SOURCESDIR)/xen-$(XEN_VERSION).tar.bz2 \
++          $(RPM_SOURCESDIR)/xen-development.patch \
++          $(RPM_SOURCESDIR)/zlib-$(ZLIB_VERSION).tar.gz \
++          $(RPM_SOURCESDIR)/pciutils-$(LIBPCI_VERSION).tar.bz2 \
++          $(RPM_SOURCESDIR)/newlib-$(NEWLIB_VERSION).tar.gz \
++          $(RPM_SOURCESDIR)/lwip-$(LWIP_VERSION).tar.gz \
++          $(RPM_SOURCESDIR)/grub-$(GRUB_VERSION).tar.gz \
++          $(RPM_SOURCESDIR)/libconfig-$(LIBCONFIG_VERSION).tar.gz \
++          $(RPM_SPECSDIR)/xen.spec
++
++XEN_HG_EXCLUDE := -X mk -X oem
++
++$(RPM_SOURCESDIR)/zlib-$(ZLIB_VERSION).tar.gz: $(RPM_SOURCESDIR)/.dirstamp $(CARBON_DISTFILES)/stubdom/zlib-$(ZLIB_VERSION).tar.gz
++	cp -v $(CARBON_DISTFILES)/stubdom/zlib-$(ZLIB_VERSION).tar.gz $(RPM_SOURCESDIR)/zlib-$(ZLIB_VERSION).tar.gz
++
++$(RPM_SOURCESDIR)/pciutils-$(LIBPCI_VERSION).tar.bz2: $(RPM_SOURCESDIR)/.dirstamp $(CARBON_DISTFILES)/stubdom/pciutils-$(LIBPCI_VERSION).tar.bz2
++	cp -v $(CARBON_DISTFILES)/stubdom/pciutils-$(LIBPCI_VERSION).tar.bz2 $(RPM_SOURCESDIR)/pciutils-$(LIBPCI_VERSION).tar.bz2
++
++$(RPM_SOURCESDIR)/newlib-$(NEWLIB_VERSION).tar.gz: $(RPM_SOURCESDIR)/.dirstamp $(CARBON_DISTFILES)/stubdom/newlib-$(NEWLIB_VERSION).tar.gz
++	cp -v $(CARBON_DISTFILES)/stubdom/newlib-$(NEWLIB_VERSION).tar.gz $(RPM_SOURCESDIR)/newlib-$(NEWLIB_VERSION).tar.gz
++
++$(RPM_SOURCESDIR)/lwip-$(LWIP_VERSION).tar.gz: $(RPM_SOURCESDIR)/.dirstamp $(CARBON_DISTFILES)/stubdom/lwip-$(LWIP_VERSION).tar.gz
++	cp -v $(CARBON_DISTFILES)/stubdom/lwip-$(LWIP_VERSION).tar.gz $(RPM_SOURCESDIR)/lwip-$(LWIP_VERSION).tar.gz
++
++$(RPM_SOURCESDIR)/grub-$(GRUB_VERSION).tar.gz: $(RPM_SOURCESDIR)/.dirstamp $(CARBON_DISTFILES)/stubdom/grub-$(GRUB_VERSION).tar.gz
++	cp -v $(CARBON_DISTFILES)/stubdom/grub-$(GRUB_VERSION).tar.gz $(RPM_SOURCESDIR)/grub-$(GRUB_VERSION).tar.gz
++
++$(RPM_SOURCESDIR)/libconfig-$(LIBCONFIG_VERSION).tar.gz: $(RPM_SOURCESDIR)/.dirstamp $(CARBON_DISTFILES)/libconfig-$(LIBCONFIG_VERSION).tar.gz
++	cp -v $(CARBON_DISTFILES)/libconfig-$(LIBCONFIG_VERSION).tar.gz $(RPM_SOURCESDIR)/libconfig-$(LIBCONFIG_VERSION).tar.gz
++
++$(RPM_SOURCESDIR)/xen-$(XEN_VERSION).tar.bz2: $(RPM_SOURCESDIR)/.dirstamp $(call pq_loc,$(REPO_NAME))
++	cd $(call pq_loc,$(REPO_NAME)) && hg archive $(XEN_HG_EXCLUDE) -t tbz2 $@
++
++$(RPM_SOURCESDIR)/xen-development.patch: $(RPM_SOURCESDIR)/.dirstamp $(call pq_loc,$(REPO_NAME))
++	cd $(call pq_loc,$(REPO_NAME)) && hg diff $(XEN_HG_EXCLUDE) > $@
++
++$(RPM_SPECSDIR)/xen.spec: $(REPO_NAME).spec.in $(RPM_SPECSDIR)/.dirstamp
++# Use a temporary file because sed in rhel3 doesn't understand "\n"
++	echo "$(CHANGELOG_HEADER)" > changelog.tmp
++	echo "$(CHANGELOG_MESSAGE)" >> changelog.tmp
++	echo "" >> changelog.tmp
++	sed -e s\,@REPO_VERSION@,$(REPO_VERSION),g \
++	    -e s\,@XEN_VERSION@,$(XEN_VERSION),g   \
++	    -e s\,@XEN_RELEASE@,$(XEN_RELEASE),g   \
++	    -e s\,@GDB_VERSION@,$(GDB_VERSION),g   \
++	    -e s\,@ZLIB_VERSION@,$(ZLIB_VERSION),g   \
++	    -e s\,@LIBPCI_VERSION@,$(LIBPCI_VERSION),g   \
++	    -e s\,@NEWLIB_VERSION@,$(NEWLIB_VERSION),g   \
++	    -e s\,@LWIP_VERSION@,$(LWIP_VERSION),g   \
++	    -e s\,@GRUB_VERSION@,$(GRUB_VERSION),g   \
++	    -e s\,@LIBCONFIG_VERSION@,$(LIBCONFIG_VERSION),g   \
++	    -e s\,@PAE@,$(PAE),g                   \
++	    -e s\,@32ON64@,$(32ON64),g             \
++	    -e s!@XEN_CHANGESET@!$(XEN_CHANGESET)!g \
++	    -e \\,%changelog,rchangelog.tmp        \
++	    < $(REPO_NAME).spec.in                       \
++	    > $(RPM_SPECSDIR)/xen.spec
++	-rm changelog.tmp
++
++$(RPM_BUILD_COOKIE): $(RPM_DIRECTORIES) $(SOURCES)
++	$(RPMBUILD) --target $(DOMAIN0_ARCH_OPTIMIZED) -ba $(RPM_SPECSDIR)/xen.spec
++	@touch $@
++
++# PAE Legacy hypervisor
++
++$(PAE_HV_COOKIE): $(SYNC_COOKIE)
++	$(MAKE) -C $(call hg_sync,$(REPO_NAME)) \
++	  XEN_TARGET_ARCH=x86_32 XEN_TARGET_X86_PAE=y \
++	  TARGET=$(call hg_sync,$(REPO_NAME))/xen/legacy \
++	  xen
++	touch $@
++
++# Files for CD and INSTALLER
++
++HYPERVISOR_OUTPUT_RPM := xen-hypervisor-$(XEN_VERSION)-$(XEN_RELEASE).$(DOMAIN0_ARCH_OPTIMIZED).rpm
++TOOLS_OUTPUT_RPM := xen-tools-$(XEN_VERSION)-$(XEN_RELEASE).$(DOMAIN0_ARCH_OPTIMIZED).rpm
++
++$(INSTALLER_FILES_COOKIE): $(RPM_BUILD_COOKIE) $(MY_INSTALLER_FILES)/.dirstamp	
++	rpm2cpio $(MY_OUTPUT_DIR)/RPMS/$(DOMAIN0_ARCH_OPTIMIZED)/$(TOOLS_OUTPUT_RPM) | \
++		( cd $(MY_INSTALLER_FILES) ; cpio --extract --make-directories --unconditional ./usr/lib\*/python\*/xen/* )
++	touch $@
++
++$(CDFILES_COOKIE): $(RPM_BUILD_COOKIE) $(MY_MAIN_CDFILES)/.dirstamp 
++	rpm2cpio $(MY_OUTPUT_DIR)/RPMS/$(DOMAIN0_ARCH_OPTIMIZED)/$(HYPERVISOR_OUTPUT_RPM) | \
++		( cd $(MY_MAIN_CDFILES) ; cpio --extract --make-directories --unconditional ./boot/xen-$(XEN_VERSION).gz )
++	mv $(MY_MAIN_CDFILES)/boot/xen-$(XEN_VERSION).gz $(MY_MAIN_CDFILES)/boot/xen.gz
++	touch $@
++
++# SOURCES, BRANDING etc
++
++$(MY_OUTPUT_DIR)/xen.inc: $(MY_OUTPUT_DIR)/.dirstamp
++	( echo XEN_PKG_NAME := xen ;\
++	  echo XEN_PKG_VERSION := $(XEN_VERSION)-$(XEN_RELEASE) ;\
++	  echo XEN_PKG_ARCH := $(DOMAIN0_ARCH_OPTIMIZED) ;\
++	  echo XEN_PKG_FILE := RPMS/$(DOMAIN0_ARCH_OPTIMIZED)/$(OUTPUT_RPM) ;\
++	  echo XEN_VERSION := \$$\(XEN_VERSION\) ;\
++	) >$@
++
++$(BRANDING):
++	echo XEN_VERSION := $(XEN_VERSION) >$(BRANDING)
++
++$(MY_SOURCES)/MANIFEST: $(MY_SOURCES_DIRSTAMP)
++	( echo "xen gpl file $(RPM_SRPMSDIR)/xen-$(XEN_VERSION)-$(XEN_RELEASE).src.rpm" ; \
++	  $(foreach o,$(FIRMWARE_OEMS),\
++            echo "xen gpl file $(RPM_SRPMSDIR).oem/xen-firmware-$(o)-$(XEN_VERSION)-$(XEN_RELEASE).src.rpm" ;) \
++        ) >$@
++
++
++.PHONY: sources
++sources: $(MY_SOURCES)/MANIFEST
++	@ :
++
++.PHONY: clean
++clean: 
++	rm -f $(RPM_BUILD_COOKIE) $(CDFILES_COOKIE) $(INSTALLER_FILES_COOKIE)
++	rm -f $(OEM_FIRMWARE_COOKIES)
++	rm -f $(SOURCES) $(OEM_FIRMWARE_SOURCES)
++	rm -f $(MY_OBJ_DIR)/version.inc
++	rm -f $(SYNC_COOKIE) $(PAE_HV_COOKIE)
++
+diff -r 482285455497 mk/Makefile.uclibc
+--- /dev/null
++++ b/mk/Makefile.uclibc
+@@ -0,0 +1,96 @@
++include $(B_BASE)/common.mk
++
++include $(PROJECT_OUTPUTDIR)/uclibc-toolchain/toolchain.mk
++
++CROSS_COMPILE := $(UCLIBC_TOOLCHAIN_PATH)/$(UCLIBC_TOOL_PREFIX)
++
++CROSS_MAKE := $(MAKE) CROSS_COMPILE=$(CROSS_COMPILE) CROSS_SYS_ROOT=$(UCLIBC_TOOLCHAIN_PATH)
++
++STRIP := $(CROSS_COMPILE)strip --strip-unneeded
++
++REPODEP := $(call pq_req,xen-4.1)
++REPO    := $(call pq_loc,xen-4.1)
++
++SOURCE_DIR           := $(MY_OBJ_DIR)/uclibc-sources
++
++SOURCE_STAMP         := $(MY_OBJ_DIR)/.source_stamp
++
++LIBXC_BUILD_STAMP    := $(MY_OBJ_DIR)/.libxc_build_stamp
++LIBXC_INSTALL_STAMP  := $(MY_OBJ_DIR)/.libxc_install_stamp
++LIBXC_INSTALL_DIR    := $(MY_OBJ_DIR)/libxc.install
++
++XENSTORE_BUILD_STAMP := $(MY_OBJ_DIR)/.xenstore_build_stamp
++
++BINARY_INSTALL_STAMP := $(MY_OBJ_DIR)/.binary_install_stamp
++BINARY_INSTALL_DIR   := $(MY_OBJ_DIR)/bin.install
++
++LIBXC_PKG            := $(MY_OUTPUT_DIR)/uclibc-libxc.tar.bz2
++BINARY_PKG           := $(MY_OUTPUT_DIR)/uclibc-binaries.tar.bz2
++SOURCE_PKG           := $(MY_OUTPUT_DIR)/uclibc-sources.tar.bz2
++
++INSTALLER_FILES_STAMP:= $(MY_OBJ_DIR)/.installer_stamp
++
++XEN_HG_INCLUDE := -I tools/libxc -I tools/xenstore -I tools/misc \
++                  -I tools/include -I tools/check -I tools/Rules.mk \
++                  -I tools/cross-install -I Config.mk -I config \
++                  -I xen/include/public -I xen/common/libelf \
++                  -I xen/include/xen -I COPYING
++
++.PHONY: build
++build: $(LIBXC_PKG) $(BINARY_PKG) $(INSTALLER_FILES_STAMP)
++	@ :
++
++.PHONY: clean
++clean:
++	rm -f $(SOURCE_STAMP)
++	rm -f $(LIBXC_BUILD_STAMP) $(LIBXC_INSTALL_STAMP)
++	rm -f $(XENSTORE_BUILD_STAMP)
++	rm -f $(BINARY_INSTALL_STAMP)
++	rm -f $(INSTALLER_FILES_STAMP)
++	rm -rf $(REPO)
++	rm -rf $(LIBXC_INSTALL_DIR)
++	rm -rf $(BINARY_INSTALL_DIR)
++
++$(SOURCE_PKG): $(REPODEP)
++	cd $(REPO) && hg archive $(XEN_HG_INCLUDE) -t tbz2 $@
++
++$(SOURCE_STAMP): $(SOURCE_PKG)
++	tar -C $(MY_OBJ_DIR) --extract --bzip2 --file $<
++	touch $@
++
++$(LIBXC_BUILD_STAMP): $(SOURCE_STAMP)
++	$(CROSS_MAKE) -C $(SOURCE_DIR)/tools/include 
++	$(CROSS_MAKE) -C $(SOURCE_DIR)/tools/libxc LIBXC_SUPPORT_THREADING=no all 
++	touch $@
++
++$(LIBXC_INSTALL_STAMP): $(LIBXC_BUILD_STAMP)
++	$(CROSS_MAKE) -C $(SOURCE_DIR)/tools/libxc LIBXC_SUPPORT_THREADING=no DESTDIR=$(LIBXC_INSTALL_DIR) install
++
++	mkdir -p $(LIBXC_INSTALL_DIR)$(UCLIBC_TOOLCHAIN)/lib
++	mv $(LIBXC_INSTALL_DIR)/usr/lib/* $(LIBXC_INSTALL_DIR)$(UCLIBC_TOOLCHAIN)/lib/
++	rmdir $(LIBXC_INSTALL_DIR)/usr/lib
++
++	mkdir -p $(LIBXC_INSTALL_DIR)$(UCLIBC_TOOLCHAIN)/include
++	mv $(LIBXC_INSTALL_DIR)/usr/include/* $(LIBXC_INSTALL_DIR)$(UCLIBC_TOOLCHAIN)/include/
++	rmdir $(LIBXC_INSTALL_DIR)/usr/include
++	touch $@
++
++$(LIBXC_PKG): $(LIBXC_INSTALL_STAMP)
++	tar --create --bzip2 --file $@ --directory $(LIBXC_INSTALL_DIR) .
++
++$(XENSTORE_BUILD_STAMP): $(LIBXC_BUILD_STAMP)
++	$(CROSS_MAKE) -C $(SOURCE_DIR)/tools/xenstore XENSTORE_STATIC_CLIENTS=y clients
++	touch $@
++
++$(BINARY_INSTALL_STAMP): $(XENSTORE_BUILD_STAMP)
++	mkdir -p $(BINARY_INSTALL_DIR)/usr/bin
++	$(CROSS_MAKE) -C $(SOURCE_DIR)/tools/xenstore XENSTORE_STATIC_CLIENTS=y DESTDIR=$(BINARY_INSTALL_DIR) client-install
++	$(STRIP) $(BINARY_INSTALL_DIR)/usr/bin/xenstore
++	touch $@
++
++$(BINARY_PKG): $(BINARY_INSTALL_STAMP)
++	tar --create --bzip2 --file $@ --directory $(BINARY_INSTALL_DIR) .
++
++$(INSTALLER_FILES_STAMP): $(BINARY_INSTALL_STAMP)
++	mkdir -p $(MY_INSTALLER_FILES)/usr/bin
++	touch $@
+diff -r 482285455497 mk/xen-4.1.spec.in
+--- /dev/null
++++ b/mk/xen-4.1.spec.in
+@@ -0,0 +1,201 @@
++# -*- rpm-spec -*-
++%{!?python_sitearch: %define python_sitearch %(%{__python} -c "from distutils.sysconfig import get_python_lib; print get_python_lib(1)")}
++
++%define COMMON_OPTIONS DESTDIR=%{buildroot} %{?_smp_mflags} XEN_CHANGESET="@REPO_VERSION@ (@XEN_VERSION@ @XEN_RELEASE@)" XEN_PYTHON_NATIVE_INSTALL=1
++
++%ifarch %ix86
++%if @32ON64@ == y
++%define HVSOR_OPTIONS XEN_TARGET_ARCH=x86_64 CROSS_COMPILE=x86_64-linux- max_phys_cpus=256
++%define TOOLS_OPTIONS XEN_TARGET_ARCH=x86_32 XEN_TARGET_X86_PAE=@PAE@
++%else
++%define HVSOR_OPTIONS XEN_TARGET_ARCH=x86_32 XEN_TARGET_X86_PAE=@PAE@
++%define TOOLS_OPTIONS XEN_TARGET_ARCH=x86_32 XEN_TARGET_X86_PAE=@PAE@
++%endif
++%endif
++
++%ifarch x86_64
++%define HVSOR_OPTIONS XEN_TARGET_ARCH=x86_64 max_phys_cpus=256
++%define TOOLS_OPTIONS XEN_TARGET_ARCH=x86_64
++%endif
++
++Summary: Xen is a virtual machine monitor
++Name:    xen
++Version: @XEN_VERSION@
++Release: @XEN_RELEASE@
++Group:   System/Hypervisor
++License: GPL
++URL:  http://www.xen.org
++Source0: xen-%{version}.tar.bz2
++Patch0: xen-development.patch
++BuildRoot: %{_tmppath}/%{name}-%{version}-root
++BuildRequires: zlib-devel python-devel ncurses-devel e2fsprogs-devel tetex dev86 x86_64-linux-gcc x86_64-linux-binutils openssl-devel gettext e4fsprogs-devel ocaml
++
++# latex
++ExclusiveArch: i386 i686 x86_64
++
++%description
++Xen hypervisor.
++
++%package hypervisor
++Summary: The Xen Hypervisor
++Group: System/Hypervisor
++
++%description hypervisor
++This package contains the Xen Hypervisor.
++
++%package firmware
++Summary: The Xen virtual firmware (hvmloader)
++Group: System/Hypervisor
++
++%description firmware
++This package contains the Xen virtual firmware (hvmloader)
++
++%package tools
++Summary: Xen Tools
++Requires: xen-hypervisor = %{version}
++
++Group: System/Hypervisor
++
++%description tools
++The Xen userspace tools
++
++%package devel
++Summary: Xen Development Headers and Libraries
++Requires: xen-hypervisor = %{version} xen-tools = %{version}
++Group:   Development/Libraries
++
++%description devel
++This package contains the Xen development libraries and header files
++for building addon tools.
++
++%prep 
++%setup -q
++%patch0 -p1 -b ~development
++
++%build
++%{__make} %{COMMON_OPTIONS} %{HVSOR_OPTIONS} XEN_CHANGESET="@XEN_CHANGESET@" xen
++%{__make} %{COMMON_OPTIONS} %{TOOLS_OPTIONS} tools
++%{__make} %{COMMON_OPTIONS} %{HVSOR_OPTIONS} -C xen MAP
++
++# Set GDB_MIRROR to something invalid so we fail the build instead of
++# downloading.
++( cd tools/debugger/gdb && GDB_MIRROR="GDB_NOT_IN_DISTFILES" ./gdbbuild )
++
++%install
++rm -rf %{buildroot}
++
++%{__make} %{COMMON_OPTIONS} %{HVSOR_OPTIONS} install-xen
++%{__make} %{COMMON_OPTIONS} %{TOOLS_OPTIONS} install-tools
++
++mkdir -p $RPM_BUILD_ROOT/%{_docdir}/%{name}/
++for name in COPYING README; do 
++  cp -p $name $RPM_BUILD_ROOT/%{_docdir}/%{name}/
++done
++cat > $RPM_BUILD_ROOT/%{_docdir}/%{name}/CHANGESET <<EOF
++Xen build from %{name} version @REPO_VERSION@
++EOF
++
++cp xen/System.map $RPM_BUILD_ROOT/boot/xen-@XEN_VERSION@.map
++
++rm -rf $RPM_BUILD_ROOT/%{_libdir}/pkgconfig
++rm -rf $RPM_BUILD_ROOT/usr/share/info
++
++# Don't use the C xenstored
++rm -f %{buildroot}%{_sbindir}/xenstored
++
++rm -f %{buildroot}%{_includedir}/%{name}/COPYING
++
++%ifarch x86_64
++ln -s %{_libdir}/%{name}/bin %{buildroot}/usr/lib/%{name}/bin
++%endif
++
++%clean
++rm -rf $RPM_BUILD_ROOT
++
++%files hypervisor
++%defattr(-,root,root)
++/boot/%{name}*.gz
++/boot/%{name}*.map
++
++%files tools
++%defattr(-,root,root)
++%{_docdir}/%{name}/CHANGESET
++%{_docdir}/%{name}/README
++%{_docdir}/%{name}/README.*
++%{_docdir}/%{name}/COPYING
++%{_bindir}/lomount
++%{_bindir}/pygrub
++%{_bindir}/xencons
++%{_bindir}/xenstore
++%{_bindir}/xenstore-*
++%{_bindir}/xentrace*
++%{_bindir}/xen-detect
++%{_sbindir}/xenpaging
++%{_sbindir}/xen-hvmctx
++%{_sbindir}/kdd
++%{_sbindir}/xen-hptool
++%{_sbindir}/xen-python-path
++%{_sbindir}/xenbaked
++%{_sbindir}/xenconsoled
++%{_sbindir}/xenmon.py
++%{_sbindir}/xenmon.pyc
++%{_sbindir}/xenmon.pyo
++%{_sbindir}/xenperf
++%{_sbindir}/xenpm
++%{_sbindir}/xenpmd
++%{_sbindir}/xentop
++%{_sbindir}/xen-hvmcrash
++%{_sbindir}/xentrace_setmask
++%{_mandir}/man?/*.?.gz
++%{_libdir}/libxenctrl*.so.*
++%{_libdir}/libxenguest*.so.*
++%{_libdir}/libxenstore*.so.*
++%{_libdir}/libfsimage*.so.*
++%{_libdir}/fs/*/*.so
++%{_libdir}/%{name}/bin/readnotes
++%{_libdir}/%{name}/bin/xenconsole
++%{_libdir}/%{name}/bin/xenctx
++%{_libdir}/%{name}/bin/lsevtchn
++%ifarch x86_64
++/usr/lib/%{name}/bin
++%endif
++%{python_sitearch}/grub
++%{python_sitearch}/%{name}
++%{python_sitearch}/fsimage.so
++%dir /var/run/xend/boot
++%dir /var/log/xen
++%dir /var/lib/xen
++%{_sysconfdir}/rc.d/init.d/*
++/etc/xen/oxenstored.conf
++/usr/sbin/oxenstored
++%{_sbindir}/xenwatchdogd
++%{_sbindir}/xen-ringwatch
++
++%files firmware
++%{_exec_prefix}/lib/%{name}/boot/hvmloader
++
++%files devel
++%defattr(-,root,root)
++%dir %{_includedir}/%{name}
++/boot/%{name}-syms*
++%{_libdir}/libxenctrl*.a
++%{_libdir}/libxenguest*.a
++%{_libdir}/libxenstore*.a
++%{_libdir}/libxenctrl*.so
++%{_libdir}/libxenguest*.so
++%{_libdir}/libxenstore*.so
++%{_libdir}/libfsimage*.so
++%{_libdir}/ocaml
++%{_includedir}/%{name}/*.h
++%{_includedir}/%{name}/*/*.h
++%{_includedir}/%{name}/*/*/*.h
++%{_includedir}/fsimage.h
++%{_includedir}/fsimage_grub.h
++%{_includedir}/fsimage_plugin.h
++%{_includedir}/xenctrl.h
++%{_includedir}/xenctrlosdep.h
++%{_includedir}/xentoollog.h
++%{_includedir}/xenguest.h
++%{_includedir}/xs.h
++%{_includedir}/xs_lib.h
++%changelog
+diff -r 482285455497 tools/xenstore/Makefile
+--- a/tools/xenstore/Makefile
++++ b/tools/xenstore/Makefile
+@@ -111,7 +111,13 @@ install: all
+ 	$(INSTALL_DATA) xs.h $(DESTDIR)$(INCLUDEDIR)
+ 	$(INSTALL_DATA) xs_lib.h $(DESTDIR)$(INCLUDEDIR)
+ 
+--include $(DEPS)
++.PHONY: client-install
++client-install: $(CLIENTS)
++	$(INSTALL_DIR) $(DESTDIR)/usr/bin
++	$(INSTALL_PROG) xenstore $(DESTDIR)/usr/bin
++	set -e ; for c in $(CLIENTS) ; do \
++		ln -f $(DESTDIR)/usr/bin/xenstore $(DESTDIR)/usr/bin/$${c} ; \
++	done
+ 
+ # never delete any intermediate files.
+ .SECONDARY:

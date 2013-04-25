@@ -1,0 +1,143 @@
+Make ACPI S3 and S4 available only when the tools allow them.
+If S4 is available, indicate that we can do time wake from S4
+(for the WHQL tests).
+
+The tools change for this is in xapi, to set the flags in the
+hvm_info table.
+
+diff -r 61aec9c7c84f tools/firmware/hvmloader/acpi/build.c
+--- a/tools/firmware/hvmloader/acpi/build.c	Thu Jan 26 00:25:43 2012 +0000
++++ b/tools/firmware/hvmloader/acpi/build.c	Thu Jan 26 14:55:09 2012 +0000
+@@ -261,6 +261,41 @@
+     return align16(offset);
+ }
+ 
++static void remove_block_from_dsdt(uint8_t *dsdt, uint8_t *sig, int block_size)
++{
++    struct acpi_header *dsdt_header;
++    int i;
++
++    dsdt_header = (struct acpi_header*)dsdt;
++
++    for ( i = 0; i < dsdt_header->length-block_size; i++ ) 
++    {
++        if ( memcmp(dsdt+i, sig, 4) == 0 ) 
++        {
++            memcpy(dsdt+i, dsdt+i+block_size, dsdt_header->length-i-block_size);
++            dsdt_header->length -= block_size;
++            break;
++       }
++    }
++}
++
++static void update_dsdt(uint8_t *dsdt)
++{
++    unsigned char sigS4[] = {'_', 'S', '4', '_'};
++    unsigned char sigS3[] = {'_', 'S', '3', '_'};
++
++    if ( get_s4_enabled() == 0 )
++        remove_block_from_dsdt(dsdt, sigS4, 14);
++
++    if ( get_s3_enabled() == 0 )
++        remove_block_from_dsdt(dsdt, sigS3, 14);
++
++    set_checksum(dsdt,
++                 offsetof(struct acpi_header, checksum),
++                 ((struct acpi_header*)dsdt)->length);
++}
++
++
+ static void __acpi_build_tables(uint8_t *buf, int *low_sz, int *high_sz)
+ {
+     struct acpi_20_rsdp *rsdp;
+@@ -285,15 +320,15 @@
+     if ( hvm_info->nr_vcpus <= 15 )
+     {
+         memcpy(dsdt, &dsdt_15cpu, dsdt_15cpu_len);
+-        offset += align16(dsdt_15cpu_len);
+         nr_processor_objects = 15;
+     }
+     else
+     {
+         memcpy(dsdt, &dsdt_anycpu, dsdt_anycpu_len);
+-        offset += align16(dsdt_anycpu_len);
+         nr_processor_objects = HVM_MAX_VCPUS;
+     }
++    update_dsdt(dsdt);
++    offset += align16(((struct acpi_header*)dsdt)->length);
+ 
+     /*
+      * N.B. ACPI 1.0 operating systems may not handle FADT with revision 2
+diff -r 61aec9c7c84f tools/firmware/hvmloader/acpi/static_tables.c
+--- a/tools/firmware/hvmloader/acpi/static_tables.c	Thu Jan 26 00:25:43 2012 +0000
++++ b/tools/firmware/hvmloader/acpi/static_tables.c	Thu Jan 26 14:55:09 2012 +0000
+@@ -70,7 +70,7 @@
+     .iapc_boot_arch = ACPI_8042,
+     .flags = (ACPI_PROC_C1 |
+               ACPI_WBINVD |
+-              ACPI_FIX_RTC | ACPI_TMR_VAL_EXT |
++              ACPI_RTC_S4 | ACPI_TMR_VAL_EXT |
+               ACPI_USE_PLATFORM_CLOCK),
+ 
+     .reset_reg = {
+diff -r 61aec9c7c84f tools/firmware/hvmloader/util.c
+--- a/tools/firmware/hvmloader/util.c	Thu Jan 26 00:25:43 2012 +0000
++++ b/tools/firmware/hvmloader/util.c	Thu Jan 26 14:55:09 2012 +0000
+@@ -688,6 +688,19 @@
+     return ((hpet_id >> 16) == 0x8086);
+ }
+ 
++int get_s3_enabled(void)
++{
++    struct hvm_info_table *t = get_hvm_info_table();
++    return (t ? t->s3_enabled : 0);
++}
++
++int get_s4_enabled(void)
++{
++    struct hvm_info_table *t = get_hvm_info_table();
++    return (t ? t->s4_enabled : 0);
++}
++
++
+ /*
+  * Local variables:
+  * mode: C
+diff -r 61aec9c7c84f tools/firmware/hvmloader/util.h
+--- a/tools/firmware/hvmloader/util.h	Thu Jan 26 00:25:43 2012 +0000
++++ b/tools/firmware/hvmloader/util.h	Thu Jan 26 14:55:09 2012 +0000
+@@ -140,6 +140,10 @@
+ struct hvm_info_table *get_hvm_info_table(void);
+ #define hvm_info (get_hvm_info_table())
+ 
++/* ACPI sleep support available for this guest? */
++int get_s3_enabled(void);
++int get_s4_enabled(void);
++
+ /* String and memory functions */
+ int strcmp(const char *cs, const char *ct);
+ int strncmp(const char *s1, const char *s2, uint32_t n);
+diff -r 61aec9c7c84f xen/include/public/hvm/hvm_info_table.h
+--- a/xen/include/public/hvm/hvm_info_table.h	Thu Jan 26 00:25:43 2012 +0000
++++ b/xen/include/public/hvm/hvm_info_table.h	Thu Jan 26 14:55:09 2012 +0000
+@@ -32,6 +32,9 @@
+ /* Maximum we can support with current vLAPIC ID mapping. */
+ #define HVM_MAX_VCPUS        128
+ 
++#define HVM_INFO_TABLE_HAS_S3_ENABLED 1
++#define HVM_INFO_TABLE_HAS_S4_ENABLED 1
++
+ struct hvm_info_table {
+     char        signature[8]; /* "HVM INFO" */
+     uint32_t    length;
+@@ -70,6 +73,10 @@
+ 
+     /* Bitmap of which CPUs are online at boot time. */
+     uint8_t     vcpu_online[(HVM_MAX_VCPUS + 7)/8];
++
++    /* Do we support ACPI S3 and S4 states? */
++    uint8_t     s3_enabled;    
++    uint8_t     s4_enabled;    
+ };
+ 
+ #endif /* __XEN_PUBLIC_HVM_HVM_INFO_TABLE_H__ */

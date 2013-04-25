@@ -1,0 +1,40 @@
+# HG changeset patch
+# Parent fb18ead42d12ac007a4c82f0e2656c8d9a24c0fe
+
+diff -r fb18ead42d12 tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/interface/pxe/pxe_tftp.c
+--- a/tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/interface/pxe/pxe_tftp.c	Wed Jan 18 17:09:27 2012 +0000
++++ b/tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/interface/pxe/pxe_tftp.c	Wed Jan 18 17:11:32 2012 +0000
+@@ -30,6 +30,8 @@
+ #include <byteswap.h>
+ #include <gpxe/uaccess.h>
+ #include <gpxe/in.h>
++#include <gpxe/uri.h>
++#include <gpxe/vsprintf.h>
+ #include <gpxe/tftp.h>
+ #include <gpxe/xfer.h>
+ #include <gpxe/open.h>
+@@ -168,6 +170,7 @@
+ 			   const unsigned char *filename, size_t blksize,
+ 			   int sizeonly ) {
+ 	char uri_string[PXE_TFTP_URI_LEN];
++	ssize_t len;
+ 	struct in_addr address;
+ 	int rc;
+ 
+@@ -182,11 +185,13 @@
+ 		port = htons ( TFTP_PORT );
+ 	if ( blksize < TFTP_DEFAULT_BLKSIZE )
+ 		blksize = TFTP_DEFAULT_BLKSIZE;
+-	snprintf ( uri_string, sizeof ( uri_string ),
+-		   "tftp%s://%s:%d%s%s?blksize=%zd",
++	len = ssnprintf ( uri_string, sizeof ( uri_string ),
++		   "tftp%s://%s:%d%s",
+ 		   sizeonly ? "size" : "",
+ 		   inet_ntoa ( address ), ntohs ( port ),
+-		   ( ( filename[0] == '/' ) ? "" : "/" ), filename, blksize );
++		   ( ( filename[0] == '/' ) ? "" : "/" ));
++	len += uri_encode( filename, uri_string + len, sizeof ( uri_string ) - len, URI_PATH);
++	ssnprintf(uri_string + len, sizeof ( uri_string ) - len, "?blksize=%zd", blksize );
+ 	DBG ( " %s", uri_string );
+ 
+ 	/* Open PXE TFTP connection */

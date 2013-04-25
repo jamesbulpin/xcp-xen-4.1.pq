@@ -1,0 +1,53 @@
+Add backwards-compatible hypercall numbers for old PV drivers.
+These numbers duplicate real operations at the addresses older
+drivers might look for them.
+
+diff -r 2cd598432882 xen/arch/x86/mm.c
+--- a/xen/arch/x86/mm.c	Thu Jul 08 13:14:39 2010 +0100
++++ b/xen/arch/x86/mm.c	Thu Jul 08 13:15:41 2010 +0100
+@@ -4261,6 +4261,7 @@
+         switch ( xatp.space )
+         {
+         case XENMAPSPACE_shared_info:
++        case XENMAPSPACE_shared_info_old_xs:
+             if ( xatp.idx == 0 )
+                 mfn = virt_to_mfn(d->shared_info);
+             break;
+@@ -4290,6 +4291,7 @@
+             spin_unlock(&d->grant_table->lock);
+             break;
+         case XENMAPSPACE_gmfn:
++        case XENMAPSPACE_physical:
+         {
+             p2m_type_t p2mt;
+ 
+diff -r 2cd598432882 xen/include/public/memory.h
+--- a/xen/include/public/memory.h	Thu Jul 08 13:14:39 2010 +0100
++++ b/xen/include/public/memory.h	Thu Jul 08 13:15:41 2010 +0100
+@@ -206,10 +206,26 @@
+     domid_t domid;
+ 
+     /* Source mapping space. */
++/* The shared_info mapspaces are a bit special because of various
++ * compatibility issues.  Geneva and Zurich Windows drivers assume
++ * that mapping space 0 will get them a 32-bit shared info structure,
++ * because they didn't consider the possibility of running 32 bit
++ * drivers on a 64 bit hypervisor.  Windows drivers for Rio through
++ * Orlando assume that shared info is available at number 4 and 0, and
++ * will map number 4 first.  Midnight Ride drivers will check the Xen
++ * version; if it's greater than 3.3, they map 0 only, otherwise, they
++ * map 4 and then 0.  This is only likely to be a problem if space 4
++ * gets reused for something else, which won't happen for a while, but
++ * when it does we'll need to break backwards compatibility with older
++ * drivers.
++ */
+ #define XENMAPSPACE_shared_info 0 /* shared info page */
+ #define XENMAPSPACE_grant_table 1 /* grant table page */
+ #define XENMAPSPACE_gmfn        2 /* GMFN */
++#define XENMAPSPACE_shared_info_old_xs   4 /* shared info page */
+     unsigned int space;
++#define XENMAPSPACE_physical      0x80000001 /* Remap a page from one
++                                                PFN to another. */
+ 
+ #define XENMAPIDX_grant_table_status 0x80000000
+ 

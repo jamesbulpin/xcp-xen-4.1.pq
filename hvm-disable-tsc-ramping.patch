@@ -1,0 +1,15 @@
+Don't adjust guest tsc to make it match the value the tsc should have
+had when a timer interrupt was supposed to be delivered.
+
+diff -r 38116bfcb86d xen/arch/x86/hvm/hvm.c
+--- a/xen/arch/x86/hvm/hvm.c	Mon Sep 01 16:11:44 2008 +0100
++++ b/xen/arch/x86/hvm/hvm.c	Mon Sep 01 17:26:47 2008 +0100
+@@ -308,6 +308,8 @@ int hvm_domain_initialise(struct domain 
+     hvm_init_guest_time(d);
+ 
+     d->arch.hvm_domain.params[HVM_PARAM_HPET_ENABLED] = 1;
++    d->arch.hvm_domain.params[HVM_PARAM_TIMER_MODE]
++        = HVMPTM_no_delay_for_missed_ticks;
+ 
+     hvm_init_cacheattr_region_list(d);
+ 

@@ -1,0 +1,109 @@
+# HG changeset patch
+# Parent 7b0dc7f3ddfe65e65b0878661a6967f781023c7d
+x86/numa: Correct assumption that each NUMA node has memory.
+
+It is now quite easy to buy servers with incorrectly populated DIMMs, especially
+with AMD Magny-Cours and Interlagos systems which have two NUMA nodes per socket.
+
+Currently, Xen will assign all CPUs on nodes without memory to node 0, which
+leads to interestingly wrong NUMA information, causing numa aware functionality
+such as alloc_domheap_pages() to get things very wrong.
+
+This patch splits the current logic to accept NUMA nodes without memory, which
+corrects the accounting of CPUs to online NUMA nodes.
+
+Signed-off-by: Andrew Cooper <andrew.cooper3@citrix.com>
+
+diff -r 7b0dc7f3ddfe xen/arch/x86/setup.c
+--- a/xen/arch/x86/setup.c
++++ b/xen/arch/x86/setup.c
+@@ -195,8 +195,10 @@ void __devinit srat_detect_node(int cpu)
+     u32 apicid = x86_cpu_to_apicid[cpu];
+ 
+     node = apicid_to_node[apicid];
+-    if ( node == NUMA_NO_NODE || !node_online(node) )
++    if ( node == NUMA_NO_NODE )
+         node = 0;
++
++    node_set_online(node);
+     numa_set_node(cpu, node);
+ 
+     if ( opt_cpu_info && acpi_numa > 0 )
+diff -r 7b0dc7f3ddfe xen/arch/x86/srat.c
+--- a/xen/arch/x86/srat.c
++++ b/xen/arch/x86/srat.c
+@@ -23,7 +23,8 @@
+ 
+ static struct acpi_table_slit *__read_mostly acpi_slit;
+ 
+-static nodemask_t nodes_parsed __initdata;
++static nodemask_t memory_nodes_parsed __initdata;
++static nodemask_t processor_nodes_parsed __initdata;
+ static nodemask_t nodes_found __initdata;
+ static struct node nodes[MAX_NUMNODES] __initdata;
+ static u8 __read_mostly pxm2node[256] = { [0 ... 255] = NUMA_NO_NODE };
+@@ -221,6 +222,7 @@ acpi_numa_processor_affinity_init(struct
+ 		return;
+ 	}
+ 	apicid_to_node[pa->apic_id] = node;
++	node_set(node, processor_nodes_parsed);
+ 	acpi_numa = 1;
+ 	printk(KERN_INFO "SRAT: PXM %u -> APIC %u -> Node %u\n",
+ 	       pxm, pa->apic_id, node);
+@@ -287,7 +289,7 @@ acpi_numa_memory_affinity_init(struct ac
+ 		return;
+ 	}
+ 	nd = &nodes[node];
+-	if (!node_test_and_set(node, nodes_parsed)) {
++	if (!node_test_and_set(node, memory_nodes_parsed)) {
+ 		nd->start = start;
+ 		nd->end = end;
+ 	} else {
+@@ -324,7 +326,7 @@ static int nodes_cover_memory(void)
+ 
+ 		do {
+ 			found = 0;
+-			for_each_node_mask(j, nodes_parsed)
++			for_each_node_mask(j, memory_nodes_parsed)
+ 				if (start < nodes[j].end
+ 				    && end > nodes[j].start) {
+ 					if (start >= nodes[j].start) {
+@@ -418,6 +420,7 @@ void __init srat_parse_regions(u64 addr)
+ int __init acpi_scan_nodes(u64 start, u64 end)
+ {
+ 	int i;
++	nodemask_t all_nodes_parsed;
+ 
+ 	/* First clean up the node list */
+ 	for (i = 0; i < MAX_NUMNODES; i++)
+@@ -441,17 +444,26 @@ int __init acpi_scan_nodes(u64 start, u6
+ 		return -1;
+ 	}
+ 
++	nodes_or(all_nodes_parsed, memory_nodes_parsed, processor_nodes_parsed);
++
+ 	/* Finally register nodes */
+-	for_each_node_mask(i, nodes_parsed)
++	for_each_node_mask(i, all_nodes_parsed)
+ 	{
+-		if ((nodes[i].end - nodes[i].start) < NODE_MIN_SIZE)
+-			continue;
++		u64 size = nodes[i].end - nodes[i].start;
++		if ( size == 0 )
++			printk(KERN_WARNING "SRAT: Node %u has no memory. "
++			       "BIOS Bug or mis-configured hardware?\n", i);
++
++		else if (size < NODE_MIN_SIZE)
++			printk(KERN_WARNING "SRAT: Node %u has only %"PRIu64
++			       " bytes of memory. BIOS Bug?\n", i, size);
++
+ 		setup_node_bootmem(i, nodes[i].start, nodes[i].end);
+ 	}
+ 	for (i = 0; i < nr_cpu_ids; i++) {
+ 		if (cpu_to_node[i] == NUMA_NO_NODE)
+ 			continue;
+-		if (!node_isset(cpu_to_node[i], nodes_parsed))
++		if (!node_isset(cpu_to_node[i], processor_nodes_parsed))
+ 			numa_set_node(i, NUMA_NO_NODE);
+ 	}
+ 	numa_init_array();

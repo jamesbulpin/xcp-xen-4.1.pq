@@ -1,0 +1,25 @@
+
+# HG changeset patch
+# User Ian Campbell <ian.campbell@citrix.com>
+# Date 1322154033 0
+# Node ID 573b1acedcc0953cfb103a54990396dcf7ac2339
+# Parent  9c6bea25f71233787a36893deaf0e811f2dcb8d8
+libvchan: clean *.opic
+
+Signed-off-by: Ian Campbell <ian.campbell@citrix.com>
+Acked-by: Ian Jackson <ian.jackson@eu.citrix.com>
+Committed-by: Ian Jackson <ian.jackson@eu.citrix.com>
+
+diff -r 9c6bea25f712 -r 573b1acedcc0 tools/libvchan/Makefile
+--- a/tools/libvchan/Makefile	Thu Nov 24 17:56:26 2011 +0100
++++ b/tools/libvchan/Makefile	Thu Nov 24 17:00:33 2011 +0000
+@@ -52,7 +52,7 @@
+ 
+ .PHONY: clean
+ clean:
+-	$(RM) -f *.o *.so* *.a vchan-node1 vchan-node2 $(DEPS)
++	$(RM) -f *.o *.opic *.so* *.a vchan-node1 vchan-node2 $(DEPS)
+ 
+ distclean: clean
+ 
+

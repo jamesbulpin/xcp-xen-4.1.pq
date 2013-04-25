@@ -1,0 +1,130 @@
+# HG changeset patch
+# User Ian Campbell <ian.campbell@citrix.com>
+# Date 1323967942 0
+# Node ID de4034343b3ab36168226e53188e269ca66067a7
+# Parent  a9d61ea9973abad4b7434f4c55fe5963bafe0156
+oxenstored: install configuration file
+
+First though:
+  - Move it to /etc/xen/oxenstored.conf.
+  - Use /var/run/xenstored.pid as default pid file
+  - Disable test-eagain "Randomly failed a transaction with EAGAIN. Used for
+    testing Xs user". Doesn't sound fun by default...
+
+Signed-off-by: Ian Campbell <ian.campbell@citrix.com>
+Acked-by: Ian Jackson <ian.jackson@eu.citrix.com>
+Committed-by: Ian Jackson <ian.jackson@eu.citrix.com>
+
+diff -r a9d61ea9973a -r de4034343b3a tools/ocaml/xenstored/Makefile
+--- a/tools/ocaml/xenstored/Makefile	Thu Dec 15 16:50:36 2011 +0000
++++ b/tools/ocaml/xenstored/Makefile	Thu Dec 15 16:52:22 2011 +0000
+@@ -52,5 +52,7 @@ bins: $(PROGRAMS)
+ install: all
+ 	$(INSTALL_DIR) $(DESTDIR)$(SBINDIR)
+ 	$(INSTALL_PROG) oxenstored $(DESTDIR)$(SBINDIR)
++	$(INSTALL_DIR) $(DESTDIR)$(XEN_CONFIG_DIR)
++	$(INSTALL_DATA) oxenstored.conf $(DESTDIR)$(XEN_CONFIG_DIR)
+ 
+ include $(OCAML_TOPLEVEL)/Makefile.rules
+diff -r a9d61ea9973a -r de4034343b3a tools/ocaml/xenstored/define.ml
+--- a/tools/ocaml/xenstored/define.ml	Thu Dec 15 16:50:36 2011 +0000
++++ b/tools/ocaml/xenstored/define.ml	Thu Dec 15 16:52:22 2011 +0000
+@@ -23,7 +23,7 @@ let xenstored_proc_port = "/proc/xen/xsd
+ let xs_daemon_socket = "/var/run/xenstored/socket"
+ let xs_daemon_socket_ro = "/var/run/xenstored/socket_ro"
+ 
+-let default_config_dir = "/etc/xensource"
++let default_config_dir = "/etc/xen"
+ 
+ let maxwatch = ref (50)
+ let maxtransaction = ref (20)
+diff -r a9d61ea9973a -r de4034343b3a tools/ocaml/xenstored/oxenstored.conf
+--- /dev/null	Thu Jan 01 00:00:00 1970 +0000
++++ b/tools/ocaml/xenstored/oxenstored.conf	Thu Dec 15 16:52:22 2011 +0000
+@@ -0,0 +1,35 @@
++# default xenstored config
++
++# Where the pid file is stored
++pid-file = /var/run/xenstored.pid
++
++# Randomly failed a transaction with EAGAIN. Used for testing Xs user
++test-eagain = false
++
++# Activate transaction merge support
++merge-activate = true
++
++# Activate node permission system
++perms-activate = true
++
++# Activate quota
++quota-activate = true
++quota-maxentity = 1000
++quota-maxsize = 2048
++quota-maxwatch = 100
++quota-transaction = 10
++
++# Activate filed base backend
++persistant = false
++
++# Xenstored logs
++# xenstored-log-file = /var/log/xenstored.log
++# xenstored-log-level = null
++# xenstored-log-nb-files = 10
++
++# Xenstored access logs
++# access-log-file = /var/log/xenstored-access.log
++# access-log-nb-lines = 13215
++# acesss-log-nb-chars = 180
++# access-log-special-ops = false
++
+diff -r a9d61ea9973a -r de4034343b3a tools/ocaml/xenstored/xenstored.conf
+--- a/tools/ocaml/xenstored/xenstored.conf	Thu Dec 15 16:50:36 2011 +0000
++++ /dev/null	Thu Jan 01 00:00:00 1970 +0000
+@@ -1,35 +0,0 @@
+-# default xenstored config
+-
+-# Where the pid file is stored
+-pid-file = /var/run/xensource/xenstored.pid
+-
+-# Randomly failed a transaction with EAGAIN. Used for testing Xs user
+-test-eagain = true
+-
+-# Activate transaction merge support
+-merge-activate = true
+-
+-# Activate node permission system
+-perms-activate = true
+-
+-# Activate quota
+-quota-activate = true
+-quota-maxentity = 1000
+-quota-maxsize = 2048
+-quota-maxwatch = 100
+-quota-transaction = 10
+-
+-# Activate filed base backend
+-persistant = false
+-
+-# Xenstored logs
+-# xenstored-log-file = /var/log/xenstored.log
+-# xenstored-log-level = null
+-# xenstored-log-nb-files = 10
+-
+-# Xenstored access logs
+-# access-log-file = /var/log/xenstored-access.log
+-# access-log-nb-lines = 13215
+-# acesss-log-nb-chars = 180
+-# access-log-special-ops = false
+-
+diff -r a9d61ea9973a -r de4034343b3a tools/ocaml/xenstored/xenstored.ml
+--- a/tools/ocaml/xenstored/xenstored.ml	Thu Dec 15 16:50:36 2011 +0000
++++ b/tools/ocaml/xenstored/xenstored.ml	Thu Dec 15 16:52:22 2011 +0000
+@@ -71,7 +71,7 @@ let sighup_handler _ =
+ let config_filename cf =
+ 	match cf.config_file with
+ 	| Some name -> name
+-	| None      -> Define.default_config_dir ^ "/xenstored.conf"
++	| None      -> Define.default_config_dir ^ "/oxenstored.conf"
+ 
+ let default_pidfile = "/var/run/xenstored.pid"
+ 

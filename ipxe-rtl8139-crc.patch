@@ -1,0 +1,18 @@
+The RTL8139 card appends a 4-byte CRC to each ethernet frame on the 
+RX ring.  Strip it back off before passing the packet on, so that UNDI
+clients that depend on the frame size field matching the ethernet length 
+don't get confused. 
+
+diff -r 5cfe74d1c9b9 tools/firmware/etherboot/ipxe-v1.0.0/src/drivers/net/rtl8139.c
+--- a/tools/firmware/etherboot/ipxe-v1.0.0/src/drivers/net/rtl8139.c	Thu Feb 18 15:41:54 2010 +0000
++++ b/tools/firmware/etherboot/ipxe-v1.0.0/src/drivers/net/rtl8139.c	Fri Feb 19 13:00:33 2010 +0000
+@@ -459,6 +459,9 @@
+ 			memcpy ( iob_put ( rx_iob, wrapped_len ),
+ 				 rtl->rx.ring, wrapped_len );
+ 
++			/* Drop hardware-appended CRC bytes. */
++			iob_unput ( rx_iob, 4 );
++
+ 			netdev_rx ( netdev, rx_iob );
+ 		} else {
+ 			DBGC ( rtl, "rtl8139 %p RX bad packet (status %#04x "

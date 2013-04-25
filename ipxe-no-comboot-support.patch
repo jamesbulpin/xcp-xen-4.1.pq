@@ -1,0 +1,18 @@
+Disable COMBOOT support in gPXE.
+
+The Windows 7 AIK uses a PXE NBP called WDSNBP.COM, but it's not a
+COMBOOT file, it's a PXE NBP.  We prefer compatibility with Windows AIK
+over Adding COMBOOT support (previous releases used Etherboot, which
+doesn't speak COMBOOT).
+
+diff -r 78bf07ea52ab tools/firmware/etherboot/ipxe-v1.0.0/src/config/defaults/pcbios.h
+--- a/tools/firmware/etherboot/ipxe-v1.0.0/src/config/defaults/pcbios.h	Fri Mar 26 17:53:24 2010 +0000
++++ b/tools/firmware/etherboot/ipxe-v1.0.0/src/config/defaults/pcbios.h	Wed Oct 05 16:39:17 2011 +0100
+@@ -23,7 +23,6 @@ FILE_LICENCE ( GPL2_OR_LATER );
+ #define	IMAGE_PXE		/* PXE image support */
+ #define IMAGE_SCRIPT		/* gPXE script image support */
+ #define IMAGE_BZIMAGE		/* Linux bzImage image support */
+-#define IMAGE_COMBOOT		/* SYSLINUX COMBOOT image support */
+ 
+ #define PXE_STACK		/* PXE stack in gPXE - required for PXELINUX */
+ #define PXE_MENU		/* PXE menu booting */

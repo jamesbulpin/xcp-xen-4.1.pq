@@ -1,0 +1,92 @@
+# HG changeset patch
+# Parent af090d17d65960e65a9af41a8f5e51f029c09f41
+libxl: Integrate with out-of-tree blktap
+
+Link with-out-of-tree XenServer blktap, modifying calling 
+so that it can link properly.
+
+diff -r af090d17d659 tools/libxl/Makefile
+--- a/tools/libxl/Makefile	Tue Feb 21 17:45:22 2012 +0000
++++ b/tools/libxl/Makefile	Wed Feb 22 16:37:05 2012 +0000
+@@ -11,6 +11,9 @@ MINOR = 0
+ XLUMAJOR = 1.0
+ XLUMINOR = 0
+ 
++CFLAGS_libblktapctl := -I/usr/include/blktap
++LDLIBS_libblktapctl := -lblktapctl
++
+ CFLAGS += -Werror -Wno-format-zero-length -Wmissing-declarations
+ CFLAGS += -I. -fPIC
+ CFLAGS += $(CFLAGS_libxenctrl) $(CFLAGS_libxenguest) $(CFLAGS_libxenstore) $(CFLAGS_libblktapctl)
+diff -r af090d17d659 tools/libxl/libxl.c
+--- a/tools/libxl/libxl.c	Tue Feb 21 17:45:22 2012 +0000
++++ b/tools/libxl/libxl.c	Wed Feb 22 16:37:05 2012 +0000
+@@ -968,7 +968,8 @@ int libxl_device_disk_add(libxl_ctx *ctx
+         case DISK_BACKEND_TAP:
+             if (libxl__blktap_enabled(&gc) && disk->format != DISK_FORMAT_EMPTY) {
+                 const char *dev = libxl__blktap_devpath(&gc,
+-                                               disk->pdev_path, disk->format);
++                                               disk->pdev_path, disk->format,
++                                               !disk->readwrite);
+                 if (!dev) {
+                     rc = ERROR_FAIL;
+                     goto out_free;
+@@ -1092,7 +1093,8 @@ char * libxl_device_disk_local_attach(li
+             if (disk->format == DISK_FORMAT_VHD || disk->format == DISK_FORMAT_RAW)
+             {
+                 if (libxl__blktap_enabled(&gc))
+-                    dev = libxl__blktap_devpath(&gc, disk->pdev_path, disk->format);
++                    dev = libxl__blktap_devpath(&gc, disk->pdev_path, disk->format,
++                                                disk->readwrite);
+                 else {
+                     if (disk->format != DISK_FORMAT_RAW) {
+                         LIBXL__LOG(ctx, LIBXL__LOG_ERROR, "tapdisk2 is required"
+diff -r af090d17d659 tools/libxl/libxl_blktap2.c
+--- a/tools/libxl/libxl_blktap2.c	Tue Feb 21 17:45:22 2012 +0000
++++ b/tools/libxl/libxl_blktap2.c	Wed Feb 22 16:37:05 2012 +0000
+@@ -26,7 +26,8 @@ int libxl__blktap_enabled(libxl__gc *gc)
+ 
+ const char *libxl__blktap_devpath(libxl__gc *gc,
+                                  const char *disk,
+-                                 libxl_disk_format format)
++                                 libxl_disk_format format,
++                                 int rdonly)
+ {
+     const char *type;
+     char *params, *devname = NULL;
+@@ -41,7 +42,8 @@ const char *libxl__blktap_devpath(libxl_
+     }
+ 
+     params = libxl__sprintf(gc, "%s:%s", type, disk);
+-    err = tap_ctl_create(params, &devname);
++    err = tap_ctl_create(params, &devname,
++                         (rdonly) ? TAPDISK_MESSAGE_FLAG_RDONLY : 0, -1, NULL);
+     if (!err) {
+         libxl__ptr_add(gc, devname);
+         return devname;
+diff -r af090d17d659 tools/libxl/libxl_internal.h
+--- a/tools/libxl/libxl_internal.h	Tue Feb 21 17:45:22 2012 +0000
++++ b/tools/libxl/libxl_internal.h	Wed Feb 22 16:37:05 2012 +0000
+@@ -312,7 +312,8 @@ _hidden int libxl__blktap_enabled(libxl_
+  */
+ _hidden const char *libxl__blktap_devpath(libxl__gc *gc,
+                                  const char *disk,
+-                                 libxl_disk_format format);
++                                 libxl_disk_format format,
++                                 int rdonly);
+ 
+ _hidden char *libxl__uuid2string(libxl__gc *gc, const libxl_uuid uuid);
+ 
+diff -r af090d17d659 tools/libxl/libxl_noblktap2.c
+--- a/tools/libxl/libxl_noblktap2.c	Tue Feb 21 17:45:22 2012 +0000
++++ b/tools/libxl/libxl_noblktap2.c	Wed Feb 22 16:37:05 2012 +0000
+@@ -23,7 +23,8 @@ int libxl__blktap_enabled(libxl__gc *gc)
+ 
+ const char *libxl__blktap_devpath(libxl__gc *gc,
+                                  const char *disk,
+-                                 libxl_disk_format format)
++                                 libxl_disk_format format,
++                                 int rdonly)
+ {
+     return NULL;
+ }

@@ -1,0 +1,50 @@
+Add a command line option to enable NPT/EPT support -- on by default.
+
+diff -r 4d6b8abd39c2 xen/arch/x86/hvm/hvm.c
+--- a/xen/arch/x86/hvm/hvm.c
++++ b/xen/arch/x86/hvm/hvm.c
+@@ -75,6 +75,10 @@ struct hvm_function_table hvm_funcs __re
+ unsigned long __attribute__ ((__section__ (".bss.page_aligned")))
+     hvm_io_bitmap[3*PAGE_SIZE/BYTES_PER_LONG];
+ 
++/* Xen command-line option to enable HAP */
++static int opt_hap_enabled = 1;
++boolean_param("hap", opt_hap_enabled);
++
+ static int cpu_callback(
+     struct notifier_block *nfb, unsigned long action, void *hcpu)
+ {
+@@ -133,13 +137,26 @@ static int __init hvm_enable(void)
+     printk("HVM: %s enabled\n", hvm_funcs.name);
+     if ( hvm_funcs.hap_supported )
+     {
+-        printk("HVM: Hardware Assisted Paging (HAP) detected\n");
+-        printk("HVM: HAP page sizes: 4kB");
+-        if ( hvm_funcs.hap_capabilities & HVM_HAP_SUPERPAGE_2MB )
+-            printk(", 2MB%s", opt_hap_2mb ? "" : " [disabled]");
+-        if ( hvm_funcs.hap_capabilities & HVM_HAP_SUPERPAGE_1GB )
+-            printk(", 1GB%s", opt_hap_1gb ? "" : " [disabled]");
+-        printk("\n");
++        hvm_funcs.hap_supported = hvm_funcs.hap_supported && opt_hap_enabled;
++
++        if ( hvm_funcs.hap_supported )
++        {
++            printk("HVM: Hardware Assisted Paging (HAP) detected\n");
++            printk("HVM: HAP page sizes: 4kB");
++            if ( hvm_funcs.hap_capabilities & HVM_HAP_SUPERPAGE_2MB )
++                printk(", 2MB%s", opt_hap_2mb ? "" : " [disabled]");
++            if ( hvm_funcs.hap_capabilities & HVM_HAP_SUPERPAGE_1GB )
++                printk(", 1GB%s", opt_hap_1gb ? "" : " [disabled]");
++            printk("\n");
++        }
++        else
++        {
++            printk("HVM: Hardware Assisted Paging (HAP) detected but disabled\n");
++        }
++    }
++    else
++    {
++        printk("HVM: Hardware Assisted Paging (HAP) not detected\n");
+     }
+ 
+     /*

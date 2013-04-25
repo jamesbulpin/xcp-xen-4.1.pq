@@ -1,0 +1,18 @@
+Allocate all of dom0's memory from the low 4GB of machine memory.
+
+This is a workaround for problems performing kexec on large
+(e.g. 128G) systems. Proper fix is to figure out which pages are
+ending up above 4G which should be below.
+
+diff -r b2227181df59 xen/arch/x86/domain_build.c
+--- a/xen/arch/x86/domain_build.c	Fri Nov 12 16:11:01 2010 +0000
++++ b/xen/arch/x86/domain_build.c	Fri Nov 12 16:12:18 2010 +0000
+@@ -523,7 +523,7 @@ int __init construct_dom0(
+         page = alloc_domheap_pages(d, order, MEMF_bits(32));
+     else
+ #endif
+-        page = alloc_domheap_pages(d, order, 0);
++    page = alloc_domheap_pages(d, order, MEMF_bits(32));
+     if ( page == NULL )
+         panic("Not enough RAM for domain 0 allocation.\n");
+     alloc_spfn = page_to_mfn(page);

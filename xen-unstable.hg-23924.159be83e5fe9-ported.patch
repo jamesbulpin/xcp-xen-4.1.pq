@@ -1,0 +1,1528 @@
+
+# HG changeset patch
+# User Daniel De Graaf <dgdegra@tycho.nsa.gov>
+# Date 1317926680 -3600
+# Node ID 159be83e5fe9111bb30d8b1f83127f5724d44424
+# Parent 5ab7e7fe7e6fe1c8feba9323511d847fb83f53ba
+libvchan: interdomain communications library
+
+This library implements a bidirectional communication interface between
+applications in different domains, similar to unix sockets. Data can be
+sent using the byte-oriented libvchan_read/libvchan_write or the
+packet-oriented libvchan_recv/libvchan_send.
+
+Channel setup is done using a client-server model; domain IDs and a port
+number must be negotiated prior to initialization. The server allocates
+memory for the shared pages and determines the sizes of the
+communication rings (which may span multiple pages, although the default
+places rings and control within a single page).
+
+With properly sized rings, testing has shown that this interface
+provides speed comparable to pipes within a single Linux domain; it is
+significantly faster than network-based communication.
+
+Signed-off-by: Daniel De Graaf <dgdegra@tycho.nsa.gov>
+Acked-by: Ian Campbell <ian.campbell@citrix.com>
+Committed-by: Ian Jackson <ian.jackson@eu.citrix.com>
+
+diff -r 5ab7e7fe7e6f tools/Makefile
+--- a/tools/Makefile
++++ b/tools/Makefile
+@@ -28,6 +28,7 @@ SUBDIRS-$(CONFIG_NetBSD) += blktap2
+ SUBDIRS-$(CONFIG_NetBSD) += xenbackendd
+ SUBDIRS-y += libfsimage
+ SUBDIRS-$(LIBXENAPI_BINDINGS) += libxen
++SUBDIRS-y += libvchan
+ 
+ # do not recurse in to a dir we are about to delete
+ ifneq "$(MAKECMDGOALS)" "distclean"
+diff -r 5ab7e7fe7e6f tools/Rules.mk
+--- a/tools/Rules.mk
++++ b/tools/Rules.mk
+@@ -14,6 +14,7 @@ XEN_LIBXC          = $(XEN_ROOT)/tools/l
+ XEN_XENSTORE       = $(XEN_ROOT)/tools/xenstore
+ XEN_LIBXENSTAT     = $(XEN_ROOT)/tools/xenstat/libxenstat/src
+ XEN_BLKTAP2        = $(XEN_ROOT)/tools/blktap2
++XEN_LIBVCHAN       = $(XEN_ROOT)/tools/libvchan
+ 
+ CFLAGS_include = -I$(XEN_INCLUDE)
+ 
+@@ -26,6 +27,10 @@ LDLIBS_libxenguest = -L$(XEN_LIBXC) -lxe
+ CFLAGS_libxenstore = -I$(XEN_XENSTORE) $(CFLAGS_include)
+ LDLIBS_libxenstore = -L$(XEN_XENSTORE) -lxenstore
+ 
++CFLAGS_libxenvchan = -I$(XEN_LIBVCHAN)
++LDLIBS_libxenvchan = $(SHLIB_libxenctrl) $(SHLIB_libxenstore) -L$(XEN_LIBVCHAN) -lxenvchan
++SHLIB_libxenvchan  = -Wl,-rpath-link=$(XEN_LIBVCHAN)
++
+ ifeq ($(CONFIG_Linux),y)
+ LIBXL_BLKTAP = y
+ else
+diff -r 5ab7e7fe7e6f tools/libvchan/Makefile
+--- /dev/null
++++ b/tools/libvchan/Makefile
+@@ -0,0 +1,59 @@
++#
++# tools/libvchan/Makefile
++#
++
++XEN_ROOT = $(CURDIR)/../..
++include $(XEN_ROOT)/tools/Rules.mk
++
++LIBVCHAN_OBJS = init.o io.o
++NODE_OBJS = node.o
++NODE2_OBJS = node-select.o
++
++LIBVCHAN_PIC_OBJS = $(patsubst %.o,%.opic,$(LIBVCHAN_OBJS))
++LIBVCHAN_LIBS = $(LDLIBS_libxenstore) $(LDLIBS_libxenctrl)
++$(LIBVCHAN_OBJS) $(LIBVCHAN_PIC_OBJS): CFLAGS += $(CFLAGS_libxenstore) $(CFLAGS_libxenctrl)
++$(NODE_OBJS) $(NODE2_OBJS): CFLAGS += $(CFLAGS_libxenctrl)
++
++MAJOR = 1.0
++MINOR = 0
++
++CFLAGS += -I../include -I.
++
++.PHONY: all
++all: libxenvchan.so vchan-node1 vchan-node2 libxenvchan.a
++
++libxenvchan.so: libxenvchan.so.$(MAJOR)
++	ln -sf $< $@
++
++libxenvchan.so.$(MAJOR): libxenvchan.so.$(MAJOR).$(MINOR)
++	ln -sf $< $@
++
++libxenvchan.so.$(MAJOR).$(MINOR): $(LIBVCHAN_PIC_OBJS)
++	$(CC) $(LDFLAGS) -Wl,$(SONAME_LDFLAG) -Wl,libxenvchan.so.$(MAJOR) $(SHLIB_LDFLAGS) -o $@ $^ $(LIBVCHAN_LIBS)
++
++libxenvchan.a: $(LIBVCHAN_OBJS)
++	$(AR) rcs libxenvchan.a $^
++
++vchan-node1: $(NODE_OBJS) libxenvchan.so
++	$(CC) $(LDFLAGS) -o $@ $(NODE_OBJS) $(LDLIBS_libxenvchan)
++
++vchan-node2: $(NODE2_OBJS) libxenvchan.so
++	$(CC) $(LDFLAGS) -o $@ $(NODE2_OBJS) $(LDLIBS_libxenvchan)
++
++.PHONY: install
++install: all
++	$(INSTALL_DIR) $(DESTDIR)$(LIBDIR)
++	$(INSTALL_DIR) $(DESTDIR)$(INCLUDEDIR)
++	$(INSTALL_PROG) libxenvchan.so.$(MAJOR).$(MINOR) $(DESTDIR)$(LIBDIR)
++	ln -sf libxenvchan.so.$(MAJOR).$(MINOR) $(DESTDIR)$(LIBDIR)/libxenvchan.so.$(MAJOR)
++	ln -sf libxenvchan.so.$(MAJOR) $(DESTDIR)$(LIBDIR)/libxenvchan.so
++	$(INSTALL_DATA) libxenvchan.h $(DESTDIR)$(INCLUDEDIR)
++	$(INSTALL_DATA) libxenvchan.a $(DESTDIR)$(LIBDIR)
++
++.PHONY: clean
++clean:
++	$(RM) -f *.o *.so* *.a vchan-node1 vchan-node2 $(DEPS)
++
++distclean: clean
++
++-include $(DEPS)
+diff -r 5ab7e7fe7e6f tools/libvchan/init.c
+--- /dev/null
++++ b/tools/libvchan/init.c
+@@ -0,0 +1,409 @@
++/**
++ * @file
++ * @section AUTHORS
++ *
++ * Copyright (C) 2010  Rafal Wojtczuk  <rafal@invisiblethingslab.com>
++ *
++ *  Authors:
++ *       Rafal Wojtczuk  <rafal@invisiblethingslab.com>
++ *       Daniel De Graaf <dgdegra@tycho.nsa.gov>
++ *
++ * @section LICENSE
++ *
++ *  This library is free software; you can redistribute it and/or
++ *  modify it under the terms of the GNU Lesser General Public
++ *  License as published by the Free Software Foundation; either
++ *  version 2.1 of the License, or (at your option) any later version.
++ *
++ *  This library is distributed in the hope that it will be useful,
++ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ *  Lesser General Public License for more details.
++ *
++ *  You should have received a copy of the GNU Lesser General Public
++ *  License along with this library; if not, write to the Free Software
++ *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA
++ *
++ * @section DESCRIPTION
++ *
++ *  This file contains the setup code used to establish the ring buffer.
++ */
++
++#include <sys/types.h>
++#include <sys/mman.h>
++#include <sys/ioctl.h>
++#include <sys/user.h>
++#include <stdlib.h>
++#include <stdio.h>
++#include <stdint.h>
++#include <string.h>
++#include <unistd.h>
++#include <fcntl.h>
++
++#include <xs.h>
++#include <xen/sys/evtchn.h>
++#include <xen/sys/gntalloc.h>
++#include <xen/sys/gntdev.h>
++#include <libxenvchan.h>
++
++#ifndef PAGE_SHIFT
++#define PAGE_SHIFT 12
++#endif
++
++#ifndef PAGE_SIZE
++#define PAGE_SIZE 4096
++#endif
++
++#define SMALL_RING_SHIFT 10
++#define LARGE_RING_SHIFT 11
++
++#define MAX_SMALL_RING (1 << SMALL_RING_SHIFT)
++#define SMALL_RING_OFFSET 1024
++#define MAX_LARGE_RING (1 << LARGE_RING_SHIFT)
++#define LARGE_RING_OFFSET 2048
++
++// if you go over this size, you'll have too many grants to fit in the shared page.
++#define MAX_RING_SHIFT 20
++#define MAX_RING_SIZE (1 << MAX_RING_SHIFT)
++
++#ifndef offsetof
++#define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
++#endif
++
++#define max(a,b) ((a > b) ? a : b)
++
++static int init_gnt_srv(struct libxenvchan *ctrl, int domain)
++{
++	int pages_left = ctrl->read.order >= PAGE_SHIFT ? 1 << (ctrl->read.order - PAGE_SHIFT) : 0;
++	int pages_right = ctrl->write.order >= PAGE_SHIFT ? 1 << (ctrl->write.order - PAGE_SHIFT) : 0;
++	uint32_t ring_ref = -1;
++	void *ring;
++
++	ring = xc_gntshr_share_page_notify(ctrl->gntshr, domain,
++			&ring_ref, 1, offsetof(struct vchan_interface, srv_live),
++			ctrl->event_port);
++
++	if (!ring)
++		goto out;
++
++	memset(ring, 0, PAGE_SIZE);
++
++	ctrl->ring = ring;
++	ctrl->read.shr = &ctrl->ring->left;
++	ctrl->write.shr = &ctrl->ring->right;
++	ctrl->ring->left_order = ctrl->read.order;
++	ctrl->ring->right_order = ctrl->write.order;
++	ctrl->ring->cli_live = 2;
++	ctrl->ring->srv_live = 1;
++	ctrl->ring->cli_notify = VCHAN_NOTIFY_WRITE;
++
++	switch (ctrl->read.order) {
++	case SMALL_RING_SHIFT:
++		ctrl->read.buffer = ((void*)ctrl->ring) + SMALL_RING_OFFSET;
++		break;
++	case LARGE_RING_SHIFT:
++		ctrl->read.buffer = ((void*)ctrl->ring) + LARGE_RING_OFFSET;
++		break;
++	default:
++		ctrl->read.buffer = xc_gntshr_share_pages(ctrl->gntshr, domain,
++			pages_left, ctrl->ring->grants, 1);
++		if (!ctrl->read.buffer)
++			goto out_ring;
++	}
++
++	switch (ctrl->write.order) {
++	case SMALL_RING_SHIFT:
++		ctrl->write.buffer = ((void*)ctrl->ring) + SMALL_RING_OFFSET;
++		break;
++	case LARGE_RING_SHIFT:
++		ctrl->write.buffer = ((void*)ctrl->ring) + LARGE_RING_OFFSET;
++		break;
++	default:
++		ctrl->write.buffer = xc_gntshr_share_pages(ctrl->gntshr, domain,
++			pages_right, ctrl->ring->grants + pages_left, 1);
++		if (!ctrl->write.buffer)
++			goto out_unmap_left;
++	}
++
++out:
++	return ring_ref;
++out_unmap_left:
++	if (pages_left)
++		xc_gntshr_munmap(ctrl->gntshr, ctrl->read.buffer, pages_left * PAGE_SIZE);
++out_ring:
++	xc_gntshr_munmap(ctrl->gntshr, ring, PAGE_SIZE);
++	ring_ref = -1;
++	ctrl->ring = NULL;
++	ctrl->write.order = ctrl->read.order = 0;
++	goto out;
++}
++
++static int init_gnt_cli(struct libxenvchan *ctrl, int domain, uint32_t ring_ref)
++{
++	int rv = -1;
++	uint32_t *grants;
++
++	ctrl->ring = xc_gnttab_map_grant_ref_notify(ctrl->gnttab,
++		domain, ring_ref, PROT_READ|PROT_WRITE,
++		offsetof(struct vchan_interface, cli_live), ctrl->event_port);
++
++	if (!ctrl->ring)
++		goto out;
++
++	ctrl->write.order = ctrl->ring->left_order;
++	ctrl->read.order = ctrl->ring->right_order;
++	ctrl->write.shr = &ctrl->ring->left;
++	ctrl->read.shr = &ctrl->ring->right;
++	if (ctrl->write.order < SMALL_RING_SHIFT || ctrl->write.order > MAX_RING_SHIFT)
++		goto out_unmap_ring;
++	if (ctrl->read.order < SMALL_RING_SHIFT || ctrl->read.order > MAX_RING_SHIFT)
++		goto out_unmap_ring;
++	if (ctrl->read.order == ctrl->write.order && ctrl->read.order < PAGE_SHIFT)
++		goto out_unmap_ring;
++
++	grants = ctrl->ring->grants;
++
++	switch (ctrl->write.order) {
++	case SMALL_RING_SHIFT:
++		ctrl->write.buffer = ((void*)ctrl->ring) + SMALL_RING_OFFSET;
++		break;
++	case LARGE_RING_SHIFT:
++		ctrl->write.buffer = ((void*)ctrl->ring) + LARGE_RING_OFFSET;
++		break;
++	default:
++		{
++			int pages_left = 1 << (ctrl->write.order - PAGE_SHIFT);
++			ctrl->write.buffer = xc_gnttab_map_domain_grant_refs(ctrl->gnttab,
++				pages_left, domain, grants, PROT_READ|PROT_WRITE);
++			if (!ctrl->write.buffer)
++				goto out_unmap_ring;
++			grants += pages_left;
++		}
++	}
++
++	switch (ctrl->read.order) {
++	case SMALL_RING_SHIFT:
++		ctrl->read.buffer = ((void*)ctrl->ring) + SMALL_RING_OFFSET;
++		break;
++	case LARGE_RING_SHIFT:
++		ctrl->read.buffer = ((void*)ctrl->ring) + LARGE_RING_OFFSET;
++		break;
++	default:
++		{
++			int pages_right = 1 << (ctrl->read.order - PAGE_SHIFT);
++			ctrl->read.buffer = xc_gnttab_map_domain_grant_refs(ctrl->gnttab,
++				pages_right, domain, grants, PROT_READ);
++			if (!ctrl->read.buffer)
++				goto out_unmap_left;
++		}
++	}
++
++	rv = 0;
++ out:
++	return rv;
++ out_unmap_left:
++	if (ctrl->write.order >= PAGE_SHIFT)
++		xc_gnttab_munmap(ctrl->gnttab, ctrl->write.buffer,
++		                 1 << ctrl->write.order);
++ out_unmap_ring:
++	xc_gnttab_munmap(ctrl->gnttab, ctrl->ring, PAGE_SIZE);
++	ctrl->ring = 0;
++	ctrl->write.order = ctrl->read.order = 0;
++	rv = -1;
++	goto out;
++}
++
++static int init_evt_srv(struct libxenvchan *ctrl, int domain, xentoollog_logger *logger)
++{
++	ctrl->event = xc_evtchn_open(logger, 0);
++	if (!ctrl->event)
++		return -1;
++	ctrl->event_port = xc_evtchn_bind_unbound_port(ctrl->event, domain);
++	if (ctrl->event_port < 0)
++		return -1;
++	if (xc_evtchn_unmask(ctrl->event, ctrl->event_port))
++		return -1;
++	return 0;
++}
++
++static int init_xs_srv(struct libxenvchan *ctrl, int domain, const char* xs_base, int ring_ref)
++{
++	int ret = -1;
++	struct xs_handle *xs;
++	struct xs_permissions perms[2];
++	char buf[64];
++	char ref[16];
++	char* domid_str = NULL;
++	xs = xs_domain_open();
++	if (!xs)
++		goto fail;
++	domid_str = xs_read(xs, 0, "domid", NULL);
++	if (!domid_str)
++		goto fail_xs_open;
++
++	// owner domain is us
++	perms[0].id = atoi(domid_str);
++	// permissions for domains not listed = none
++	perms[0].perms = XS_PERM_NONE;
++	// other domains
++	perms[1].id = domain;
++	perms[1].perms = XS_PERM_READ;
++
++	snprintf(ref, sizeof ref, "%d", ring_ref);
++	snprintf(buf, sizeof buf, "%s/ring-ref", xs_base);
++	if (!xs_write(xs, 0, buf, ref, strlen(ref)))
++		goto fail_xs_open;
++	if (!xs_set_permissions(xs, 0, buf, perms, 2))
++		goto fail_xs_open;
++
++	snprintf(ref, sizeof ref, "%d", ctrl->event_port);
++	snprintf(buf, sizeof buf, "%s/event-channel", xs_base);
++	if (!xs_write(xs, 0, buf, ref, strlen(ref)))
++		goto fail_xs_open;
++	if (!xs_set_permissions(xs, 0, buf, perms, 2))
++		goto fail_xs_open;
++
++	ret = 0;
++ fail_xs_open:
++	free(domid_str);
++	xs_daemon_close(xs);
++ fail:
++	return ret;
++}
++
++static int min_order(size_t siz)
++{
++	int rv = PAGE_SHIFT;
++	while (siz > (1 << rv))
++		rv++;
++	return rv;
++}
++
++struct libxenvchan *libxenvchan_server_init(xentoollog_logger *logger, int domain, const char* xs_path, size_t left_min, size_t right_min)
++{
++	struct libxenvchan *ctrl;
++	int ring_ref;
++	if (left_min > MAX_RING_SIZE || right_min > MAX_RING_SIZE)
++		return 0;
++
++	ctrl = malloc(sizeof(*ctrl));
++	if (!ctrl)
++		return 0;
++
++	ctrl->ring = NULL;
++	ctrl->event = NULL;
++	ctrl->is_server = 1;
++	ctrl->server_persist = 0;
++
++	ctrl->read.order = min_order(left_min);
++	ctrl->write.order = min_order(right_min);
++
++	// if we can avoid allocating extra pages by using in-page rings, do so
++	if (left_min <= MAX_SMALL_RING && right_min <= MAX_LARGE_RING) {
++		ctrl->read.order = SMALL_RING_SHIFT;
++		ctrl->write.order = LARGE_RING_SHIFT;
++	} else if (left_min <= MAX_LARGE_RING && right_min <= MAX_SMALL_RING) {
++		ctrl->read.order = LARGE_RING_SHIFT;
++		ctrl->write.order = SMALL_RING_SHIFT;
++	} else if (left_min <= MAX_LARGE_RING) {
++		ctrl->read.order = LARGE_RING_SHIFT;
++	} else if (right_min <= MAX_LARGE_RING) {
++		ctrl->write.order = LARGE_RING_SHIFT;
++	}
++
++	ctrl->gntshr = xc_gntshr_open(logger, 0);
++	if (!ctrl->gntshr)
++		goto out;
++
++	if (init_evt_srv(ctrl, domain, logger))
++		goto out;
++	ring_ref = init_gnt_srv(ctrl, domain);
++	if (ring_ref < 0)
++		goto out;
++	if (init_xs_srv(ctrl, domain, xs_path, ring_ref))
++		goto out;
++	return ctrl;
++out:
++	libxenvchan_close(ctrl);
++	return 0;
++}
++
++static int init_evt_cli(struct libxenvchan *ctrl, int domain, xentoollog_logger *logger)
++{
++	ctrl->event = xc_evtchn_open(logger, 0);
++	if (!ctrl->event)
++		return -1;
++	ctrl->event_port = xc_evtchn_bind_interdomain(ctrl->event,
++		domain, ctrl->event_port);
++	if (ctrl->event_port < 0)
++		return -1;
++	xc_evtchn_unmask(ctrl->event, ctrl->event_port);
++	return 0;
++}
++
++
++struct libxenvchan *libxenvchan_client_init(xentoollog_logger *logger, int domain, const char* xs_path)
++{
++	struct libxenvchan *ctrl = malloc(sizeof(struct libxenvchan));
++	struct xs_handle *xs = NULL;
++	char buf[64];
++	char *ref;
++	int ring_ref;
++	unsigned int len;
++
++	if (!ctrl)
++		return 0;
++	ctrl->ring = NULL;
++	ctrl->event = NULL;
++	ctrl->gnttab = NULL;
++	ctrl->write.order = ctrl->read.order = 0;
++	ctrl->is_server = 0;
++
++	xs = xs_daemon_open();
++	if (!xs)
++		xs = xs_domain_open();
++	if (!xs)
++		goto fail;
++
++// find xenstore entry
++	snprintf(buf, sizeof buf, "%s/ring-ref", xs_path);
++	ref = xs_read(xs, 0, buf, &len);
++	if (!ref)
++		goto fail;
++	ring_ref = atoi(ref);
++	free(ref);
++	if (!ring_ref)
++		goto fail;
++	snprintf(buf, sizeof buf, "%s/event-channel", xs_path);
++	ref = xs_read(xs, 0, buf, &len);
++	if (!ref)
++		goto fail;
++	ctrl->event_port = atoi(ref);
++	free(ref);
++	if (!ctrl->event_port)
++		goto fail;
++
++	ctrl->gnttab = xc_gnttab_open(logger, 0);
++	if (!ctrl->gnttab)
++		goto out;
++
++// set up event channel
++	if (init_evt_cli(ctrl, domain, logger))
++		goto fail;
++
++// set up shared page(s)
++	if (init_gnt_cli(ctrl, domain, ring_ref))
++		goto fail;
++
++	ctrl->ring->cli_live = 1;
++	ctrl->ring->srv_notify = VCHAN_NOTIFY_WRITE;
++
++ out:
++	if (xs)
++		xs_daemon_close(xs);
++	return ctrl;
++ fail:
++	libxenvchan_close(ctrl);
++	ctrl = NULL;
++	goto out;
++}
+diff -r 5ab7e7fe7e6f tools/libvchan/io.c
+--- /dev/null
++++ b/tools/libvchan/io.c
+@@ -0,0 +1,375 @@
++/**
++ * @file
++ * @section AUTHORS
++ *
++ * Copyright (C) 2010  Rafal Wojtczuk  <rafal@invisiblethingslab.com>
++ *
++ *  Authors:
++ *       Rafal Wojtczuk  <rafal@invisiblethingslab.com>
++ *       Daniel De Graaf <dgdegra@tycho.nsa.gov>
++ *
++ * @section LICENSE
++ *
++ *  This library is free software; you can redistribute it and/or
++ *  modify it under the terms of the GNU Lesser General Public
++ *  License as published by the Free Software Foundation; either
++ *  version 2.1 of the License, or (at your option) any later version.
++ *
++ *  This library is distributed in the hope that it will be useful,
++ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ *  Lesser General Public License for more details.
++ *
++ *  You should have received a copy of the GNU Lesser General Public
++ *  License along with this library; if not, write to the Free Software
++ *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA
++ *
++ * @section DESCRIPTION
++ *
++ *  This file contains the communications interface built on the ring buffer.
++ */
++
++#include <sys/types.h>
++#include <sys/mman.h>
++#include <sys/ioctl.h>
++#include <sys/uio.h>
++#include <stdlib.h>
++#include <stdint.h>
++#include <string.h>
++#include <unistd.h>
++
++#include <xenctrl.h>
++#include <libxenvchan.h>
++
++#ifndef PAGE_SHIFT
++#define PAGE_SHIFT 12
++#endif
++
++#ifndef PAGE_SIZE
++#define PAGE_SIZE 4096
++#endif
++
++// allow vchan data to be easily observed in strace by doing a
++// writev() to FD -1 with the data being read/written.
++#ifndef VCHAN_DEBUG
++#define VCHAN_DEBUG 0
++#endif
++
++#define barrier() asm volatile("" ::: "memory")
++
++
++static inline uint32_t rd_prod(struct libxenvchan *ctrl)
++{
++	return ctrl->read.shr->prod;
++}
++
++static inline uint32_t* _rd_cons(struct libxenvchan *ctrl)
++{
++	return &ctrl->read.shr->cons;
++}
++#define rd_cons(x) (*_rd_cons(x))
++
++static inline uint32_t* _wr_prod(struct libxenvchan *ctrl)
++{
++	return &ctrl->write.shr->prod;
++}
++#define wr_prod(x) (*_wr_prod(x))
++
++static inline uint32_t wr_cons(struct libxenvchan *ctrl)
++{
++	return ctrl->write.shr->cons;
++}
++
++static inline const void* rd_ring(struct libxenvchan *ctrl)
++{
++	return ctrl->read.buffer;
++}
++
++static inline void* wr_ring(struct libxenvchan *ctrl)
++{
++	return ctrl->write.buffer;
++}
++
++static inline uint32_t wr_ring_size(struct libxenvchan *ctrl)
++{
++	return (1 << ctrl->write.order);
++}
++
++static inline uint32_t rd_ring_size(struct libxenvchan *ctrl)
++{
++	return (1 << ctrl->read.order);
++}
++
++static inline void request_notify(struct libxenvchan *ctrl, uint8_t bit)
++{
++	uint8_t *notify = ctrl->is_server ? &ctrl->ring->cli_notify : &ctrl->ring->srv_notify;
++	__sync_or_and_fetch(notify, bit);
++}
++
++static inline int send_notify(struct libxenvchan *ctrl, uint8_t bit)
++{
++	uint8_t *notify = ctrl->is_server ? &ctrl->ring->srv_notify : &ctrl->ring->cli_notify;
++	uint8_t prev = __sync_fetch_and_and(notify, ~bit);
++	if (prev & bit)
++		return xc_evtchn_notify(ctrl->event, ctrl->event_port);
++	else
++		return 0;
++}
++
++/**
++ * Get the amount of buffer space available and enable notifications if needed.
++ */
++static inline int fast_get_data_ready(struct libxenvchan *ctrl, size_t request)
++{
++	int ready = rd_prod(ctrl) - rd_cons(ctrl);
++	if (ready >= request)
++		return ready;
++	/* We plan to consume all data; please tell us if you send more */
++	request_notify(ctrl, VCHAN_NOTIFY_WRITE);
++	/*
++	 * If the writer moved rd_prod after our read but before request, we
++	 * will not get notified even though the actual amount of data ready is
++	 * above request. Reread rd_prod to cover this case.
++	 */
++	return rd_prod(ctrl) - rd_cons(ctrl);
++}
++
++int libxenvchan_data_ready(struct libxenvchan *ctrl)
++{
++	/* Since this value is being used outside libxenvchan, request notification
++	 * when it changes
++	 */
++	request_notify(ctrl, VCHAN_NOTIFY_WRITE);
++	return rd_prod(ctrl) - rd_cons(ctrl);
++}
++
++/**
++ * Get the amount of buffer space available and enable notifications if needed.
++ */
++static inline int fast_get_buffer_space(struct libxenvchan *ctrl, size_t request)
++{
++	int ready = wr_ring_size(ctrl) - (wr_prod(ctrl) - wr_cons(ctrl));
++	if (ready >= request)
++		return ready;
++	/* We plan to fill the buffer; please tell us when you've read it */
++	request_notify(ctrl, VCHAN_NOTIFY_READ);
++	/*
++	 * If the reader moved wr_cons after our read but before request, we
++	 * will not get notified even though the actual amount of buffer space
++	 * is above request. Reread wr_cons to cover this case.
++	 */
++	return wr_ring_size(ctrl) - (wr_prod(ctrl) - wr_cons(ctrl));
++}
++
++int libxenvchan_buffer_space(struct libxenvchan *ctrl)
++{
++	/* Since this value is being used outside libxenvchan, request notification
++	 * when it changes
++	 */
++	request_notify(ctrl, VCHAN_NOTIFY_READ);
++	return wr_ring_size(ctrl) - (wr_prod(ctrl) - wr_cons(ctrl));
++}
++
++int libxenvchan_wait(struct libxenvchan *ctrl)
++{
++	int ret = xc_evtchn_pending(ctrl->event);
++	if (ret < 0)
++		return -1;
++	xc_evtchn_unmask(ctrl->event, ret);
++	return 0;
++}
++
++/**
++ * returns -1 on error, or size on success
++ */
++static int do_send(struct libxenvchan *ctrl, const void *data, size_t size)
++{
++	int real_idx = wr_prod(ctrl) & (wr_ring_size(ctrl) - 1);
++	int avail_contig = wr_ring_size(ctrl) - real_idx;
++	if (VCHAN_DEBUG) {
++		char metainfo[32];
++		struct iovec iov[2];
++		iov[0].iov_base = metainfo;
++		iov[0].iov_len = snprintf(metainfo, 32, "vchan@%p wr", ctrl);
++		iov[1].iov_base = (void *)data;
++		iov[1].iov_len = size;
++		writev(-1, iov, 2);
++	}
++	if (avail_contig > size)
++		avail_contig = size;
++	memcpy(wr_ring(ctrl) + real_idx, data, avail_contig);
++	if (avail_contig < size)
++	{
++		// we rolled across the end of the ring
++		memcpy(wr_ring(ctrl), data + avail_contig, size - avail_contig);
++	}
++	barrier(); // data must be in the ring prior to increment
++	wr_prod(ctrl) += size;
++	barrier(); // increment must happen prior to notify
++	if (send_notify(ctrl, VCHAN_NOTIFY_WRITE))
++		return -1;
++	return size;
++}
++
++/**
++ * returns 0 if no buffer space is available, -1 on error, or size on success
++ */
++int libxenvchan_send(struct libxenvchan *ctrl, const void *data, size_t size)
++{
++	int avail;
++	while (1) {
++		if (!libxenvchan_is_open(ctrl))
++			return -1;
++		avail = fast_get_buffer_space(ctrl, size);
++		if (size <= avail)
++			return do_send(ctrl, data, size);
++		if (!ctrl->blocking)
++			return 0;
++		if (size > wr_ring_size(ctrl))
++			return -1;
++		if (libxenvchan_wait(ctrl))
++			return -1;
++	}
++}
++
++int libxenvchan_write(struct libxenvchan *ctrl, const void *data, size_t size)
++{
++	int avail;
++	if (!libxenvchan_is_open(ctrl))
++		return -1;
++	if (ctrl->blocking) {
++		size_t pos = 0;
++		while (1) {
++			avail = fast_get_buffer_space(ctrl, size - pos);
++			if (pos + avail > size)
++				avail = size - pos;
++			if (avail)
++				pos += do_send(ctrl, data + pos, avail);
++			if (pos == size)
++				return pos;
++			if (libxenvchan_wait(ctrl))
++				return -1;
++			if (!libxenvchan_is_open(ctrl))
++				return -1;
++		}
++	} else {
++		avail = fast_get_buffer_space(ctrl, size);
++		if (size > avail)
++			size = avail;
++		if (size == 0)
++			return 0;
++		return do_send(ctrl, data, size);
++	}
++}
++
++static int do_recv(struct libxenvchan *ctrl, void *data, size_t size)
++{
++	int real_idx = rd_cons(ctrl) & (rd_ring_size(ctrl) - 1);
++	int avail_contig = rd_ring_size(ctrl) - real_idx;
++	if (avail_contig > size)
++		avail_contig = size;
++	barrier(); // data read must happen after rd_cons read
++	memcpy(data, rd_ring(ctrl) + real_idx, avail_contig);
++	if (avail_contig < size)
++	{
++		// we rolled across the end of the ring
++		memcpy(data + avail_contig, rd_ring(ctrl), size - avail_contig);
++	}
++	rd_cons(ctrl) += size;
++	if (VCHAN_DEBUG) {
++		char metainfo[32];
++		struct iovec iov[2];
++		iov[0].iov_base = metainfo;
++		iov[0].iov_len = snprintf(metainfo, 32, "vchan@%p rd", ctrl);
++		iov[1].iov_base = data;
++		iov[1].iov_len = size;
++		writev(-1, iov, 2);
++	}
++	barrier(); // consumption must happen prior to notify of newly freed space
++	if (send_notify(ctrl, VCHAN_NOTIFY_READ))
++		return -1;
++	return size;
++}
++
++/**
++ * reads exactly size bytes from the vchan.
++ * returns 0 if insufficient data is available, -1 on error, or size on success
++ */
++int libxenvchan_recv(struct libxenvchan *ctrl, void *data, size_t size)
++{
++	while (1) {
++		int avail = fast_get_data_ready(ctrl, size);
++		if (size <= avail)
++			return do_recv(ctrl, data, size);
++		if (!libxenvchan_is_open(ctrl))
++			return -1;
++		if (!ctrl->blocking)
++			return 0;
++		if (size > rd_ring_size(ctrl))
++			return -1;
++		if (libxenvchan_wait(ctrl))
++			return -1;
++	}
++}
++
++int libxenvchan_read(struct libxenvchan *ctrl, void *data, size_t size)
++{
++	while (1) {
++		int avail = fast_get_data_ready(ctrl, size);
++		if (avail && size > avail)
++			size = avail;
++		if (avail)
++			return do_recv(ctrl, data, size);
++		if (!libxenvchan_is_open(ctrl))
++			return -1;
++		if (!ctrl->blocking)
++			return 0;
++		if (libxenvchan_wait(ctrl))
++			return -1;
++	}
++}
++
++int libxenvchan_is_open(struct libxenvchan* ctrl)
++{
++	if (ctrl->is_server)
++		return ctrl->server_persist ? 1 : ctrl->ring->cli_live;
++	else
++		return ctrl->ring->srv_live;
++}
++
++int libxenvchan_fd_for_select(struct libxenvchan *ctrl)
++{
++	return xc_evtchn_fd(ctrl->event);
++}
++
++void libxenvchan_close(struct libxenvchan *ctrl)
++{
++	if (!ctrl)
++		return;
++	if (ctrl->read.order >= PAGE_SHIFT)
++		munmap(ctrl->read.buffer, 1 << ctrl->read.order);
++	if (ctrl->write.order >= PAGE_SHIFT)
++		munmap(ctrl->write.buffer, 1 << ctrl->write.order);
++	if (ctrl->ring) {
++		if (ctrl->is_server) {
++			ctrl->ring->srv_live = 0;
++			xc_gntshr_munmap(ctrl->gntshr, ctrl->ring, PAGE_SIZE);
++		} else {
++			ctrl->ring->cli_live = 0;
++			xc_gnttab_munmap(ctrl->gnttab, ctrl->ring, PAGE_SIZE);
++		}
++	}
++	if (ctrl->event) {
++		if (ctrl->event_port >= 0 && ctrl->ring)
++			xc_evtchn_notify(ctrl->event, ctrl->event_port);
++		xc_evtchn_close(ctrl->event);
++	}
++	if (ctrl->is_server) {
++		if (ctrl->gntshr)
++			xc_gntshr_close(ctrl->gntshr);
++	} else {
++		if (ctrl->gnttab)
++			xc_gnttab_close(ctrl->gnttab);
++	}
++	free(ctrl);
++}
+diff -r 5ab7e7fe7e6f tools/libvchan/libxenvchan.h
+--- /dev/null
++++ b/tools/libvchan/libxenvchan.h
+@@ -0,0 +1,169 @@
++/**
++ * @file
++ * @section AUTHORS
++ *
++ * Copyright (C) 2010  Rafal Wojtczuk  <rafal@invisiblethingslab.com>
++ *
++ *  Authors:
++ *       Rafal Wojtczuk  <rafal@invisiblethingslab.com>
++ *       Daniel De Graaf <dgdegra@tycho.nsa.gov>
++ *
++ * @section LICENSE
++ *
++ *  This library is free software; you can redistribute it and/or
++ *  modify it under the terms of the GNU Lesser General Public
++ *  License as published by the Free Software Foundation; either
++ *  version 2.1 of the License, or (at your option) any later version.
++ *
++ *  This library is distributed in the hope that it will be useful,
++ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ *  Lesser General Public License for more details.
++ *
++ *  You should have received a copy of the GNU Lesser General Public
++ *  License along with this library; if not, write to the Free Software
++ *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA
++ *
++ * @section DESCRIPTION
++ *
++ *  Originally borrowed from the Qubes OS Project, http://www.qubes-os.org,
++ *  this code has been substantially rewritten to use the gntdev and gntalloc
++ *  devices instead of raw MFNs and map_foreign_range.
++ *
++ *  This is a library for inter-domain communication.  A standard Xen ring
++ *  buffer is used, with a datagram-based interface built on top.  The grant
++ *  reference and event channels are shared in XenStore under the path
++ *  /local/domain/<srv-id>/data/vchan/<cli-id>/<port>/{ring-ref,event-channel}
++ *
++ *  The ring.h macros define an asymmetric interface to a shared data structure
++ *  that assumes all rings reside in a single contiguous memory space. This is
++ *  not suitable for vchan because the interface to the ring is symmetric except
++ *  for the setup. Unlike the producer-consumer rings defined in ring.h, the
++ *  size of the rings used in vchan are determined at execution time instead of
++ *  compile time, so the macros in ring.h cannot be used to access the rings.
++ */
++
++#include <xen/io/libxenvchan.h>
++#include <xen/sys/evtchn.h>
++#include <xenctrl.h>
++
++struct libxenvchan_ring {
++	/* Pointer into the shared page. Offsets into buffer. */
++	struct ring_shared* shr;
++	/* ring data; may be its own shared page(s) depending on order */
++	void* buffer;
++	/**
++	 * The size of the ring is (1 << order); offsets wrap around when they
++	 * exceed this. This copy is required because we can't trust the order
++	 * in the shared page to remain constant.
++	 */
++	int order;
++};
++
++/**
++ * struct libxenvchan: control structure passed to all library calls
++ */
++struct libxenvchan {
++	/* Mapping handle for shared ring page */
++	union {
++		xc_gntshr *gntshr; /* for server */
++		xc_gnttab *gnttab; /* for client */
++	};
++	/* Pointer to shared ring page */
++	struct vchan_interface *ring;
++	/* event channel interface */
++	xc_evtchn *event;
++	uint32_t event_port;
++	/* informative flags: are we acting as server? */
++	int is_server:1;
++	/* true if server remains active when client closes (allows reconnection) */
++	int server_persist:1;
++	/* true if operations should block instead of returning 0 */
++	int blocking:1;
++	/* communication rings */
++	struct libxenvchan_ring read, write;
++};
++
++/**
++ * Set up a vchan, including granting pages
++ * @param logger Logger for libxc errors
++ * @param domain The peer domain that will be connecting
++ * @param xs_path Base xenstore path for storing ring/event data
++ * @param send_min The minimum size (in bytes) of the send ring (left)
++ * @param recv_min The minimum size (in bytes) of the receive ring (right)
++ * @return The structure, or NULL in case of an error
++ */
++struct libxenvchan *libxenvchan_server_init(xentoollog_logger *logger, int domain, const char* xs_path, size_t read_min, size_t write_min);
++/**
++ * Connect to an existing vchan. Note: you can reconnect to an existing vchan
++ * safely, however no locking is performed, so you must prevent multiple clients
++ * from connecting to a single server.
++ *
++ * @param logger Logger for libxc errors
++ * @param domain The peer domain to connect to
++ * @param xs_path Base xenstore path for storing ring/event data
++ * @return The structure, or NULL in case of an error
++ */
++struct libxenvchan *libxenvchan_client_init(xentoollog_logger *logger, int domain, const char* xs_path);
++/**
++ * Close a vchan. This deallocates the vchan and attempts to free its
++ * resources. The other side is notified of the close, but can still read any
++ * data pending prior to the close.
++ */
++void libxenvchan_close(struct libxenvchan *ctrl);
++
++/**
++ * Packet-based receive: always reads exactly $size bytes.
++ * @param ctrl The vchan control structure
++ * @param data Buffer for data that was read
++ * @param size Size of the buffer and amount of data to read
++ * @return -1 on error, 0 if nonblocking and insufficient data is available, or $size
++ */
++int libxenvchan_recv(struct libxenvchan *ctrl, void *data, size_t size);
++/**
++ * Stream-based receive: reads as much data as possible.
++ * @param ctrl The vchan control structure
++ * @param data Buffer for data that was read
++ * @param size Size of the buffer
++ * @return -1 on error, otherwise the amount of data read (which may be zero if
++ *         the vchan is nonblocking)
++ */
++int libxenvchan_read(struct libxenvchan *ctrl, void *data, size_t size);
++/**
++ * Packet-based send: send entire buffer if possible
++ * @param ctrl The vchan control structure
++ * @param data Buffer for data to send
++ * @param size Size of the buffer and amount of data to send
++ * @return -1 on error, 0 if nonblocking and insufficient space is available, or $size
++ */
++int libxenvchan_send(struct libxenvchan *ctrl, const void *data, size_t size);
++/**
++ * Stream-based send: send as much data as possible.
++ * @param ctrl The vchan control structure
++ * @param data Buffer for data to send
++ * @param size Size of the buffer
++ * @return -1 on error, otherwise the amount of data sent (which may be zero if
++ *         the vchan is nonblocking)
++ */
++int libxenvchan_write(struct libxenvchan *ctrl, const void *data, size_t size);
++/**
++ * Waits for reads or writes to unblock, or for a close
++ */
++int libxenvchan_wait(struct libxenvchan *ctrl);
++/**
++ * Returns the event file descriptor for this vchan. When this FD is readable,
++ * libxenvchan_wait() will not block, and the state of the vchan has changed since
++ * the last invocation of libxenvchan_wait().
++ */
++int libxenvchan_fd_for_select(struct libxenvchan *ctrl);
++/**
++ * Query the state of the vchan shared page:
++ *  return 0 when one side has called libxenvchan_close() or crashed
++ *  return 1 when both sides are open
++ *  return 2 [server only] when no client has yet connected
++ */
++int libxenvchan_is_open(struct libxenvchan* ctrl);
++/** Amount of data ready to read, in bytes */
++int libxenvchan_data_ready(struct libxenvchan *ctrl);
++/** Amount of data it is possible to send without blocking */
++int libxenvchan_buffer_space(struct libxenvchan *ctrl);
+diff -r 5ab7e7fe7e6f tools/libvchan/node-select.c
+--- /dev/null
++++ b/tools/libvchan/node-select.c
+@@ -0,0 +1,162 @@
++/**
++ * @file
++ * @section AUTHORS
++ *
++ * Copyright (C) 2010  Rafal Wojtczuk  <rafal@invisiblethingslab.com>
++ *
++ *  Authors:
++ *       Rafal Wojtczuk  <rafal@invisiblethingslab.com>
++ *       Daniel De Graaf <dgdegra@tycho.nsa.gov>
++ *
++ * @section LICENSE
++ *
++ *  This program is free software; you can redistribute it and/or
++ *  modify it under the terms of the GNU Lesser General Public
++ *  License as published by the Free Software Foundation; either
++ *  version 2.1 of the License, or (at your option) any later version.
++ *
++ *  This program is distributed in the hope that it will be useful,
++ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ *  Lesser General Public License for more details.
++ *
++ *  You should have received a copy of the GNU Lesser General Public
++ *  License along with this program; if not, write to the Free Software
++ *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA
++ *
++ * @section DESCRIPTION
++ *
++ * This is a test program for libxenvchan.  Communications are bidirectional,
++ * with either server (grant offeror) or client able to read and write.
++ */
++
++#include <stdlib.h>
++#include <stdio.h>
++#include <string.h>
++#include <unistd.h>
++#include <fcntl.h>
++#include <errno.h>
++
++#include <libxenvchan.h>
++
++void usage(char** argv)
++{
++	fprintf(stderr, "usage:\n"
++		"\t%s [client|server] domainid nodepath [rbufsiz wbufsiz]\n",
++		argv[0]);
++	exit(1);
++}
++
++#define BUFSIZE 5000
++char inbuf[BUFSIZE];
++char outbuf[BUFSIZE];
++int insiz = 0;
++int outsiz = 0;
++struct libxenvchan *ctrl = 0;
++
++void vchan_wr() {
++	if (!insiz)
++		return;
++	int ret = libxenvchan_write(ctrl, inbuf, insiz);
++	if (ret < 0) {
++		fprintf(stderr, "vchan write failed\n");
++		exit(1);
++	}
++	if (ret > 0) {
++		insiz -= ret;
++		memmove(inbuf, inbuf + ret, insiz);
++	}
++}
++
++void stdout_wr() {
++	if (!outsiz)
++		return;
++	int ret = write(1, outbuf, outsiz);
++	if (ret < 0 && errno != EAGAIN)
++		exit(1);
++	if (ret > 0) {
++		outsiz -= ret;
++		memmove(outbuf, outbuf + ret, outsiz);
++	}
++}
++
++/**
++    Simple libxenvchan application, both client and server.
++	Both sides may write and read, both from the libxenvchan and from 
++	stdin/stdout (just like netcat).
++*/
++
++int main(int argc, char **argv)
++{
++	int ret;
++	int libxenvchan_fd;
++	if (argc < 4 || argv[3][0] != '/')
++		usage(argv);
++	if (!strcmp(argv[1], "server")) {
++		int rsiz = argc > 4 ? atoi(argv[4]) : 0;
++		int wsiz = argc > 5 ? atoi(argv[5]) : 0;
++		ctrl = libxenvchan_server_init(NULL, atoi(argv[2]), argv[3], rsiz, wsiz);
++	} else if (!strcmp(argv[1], "client"))
++		ctrl = libxenvchan_client_init(NULL, atoi(argv[2]), argv[3]);
++	else
++		usage(argv);
++	if (!ctrl) {
++		perror("libxenvchan_*_init");
++		exit(1);
++	}
++
++	fcntl(0, F_SETFL, O_NONBLOCK);
++	fcntl(1, F_SETFL, O_NONBLOCK);
++
++	libxenvchan_fd = libxenvchan_fd_for_select(ctrl);
++	for (;;) {
++		fd_set rfds;
++		fd_set wfds;
++		FD_ZERO(&rfds);
++		FD_ZERO(&wfds);
++		if (insiz != BUFSIZE)
++			FD_SET(0, &rfds);
++		if (outsiz)
++			FD_SET(1, &wfds);
++		FD_SET(libxenvchan_fd, &rfds);
++		ret = select(libxenvchan_fd + 1, &rfds, &wfds, NULL, NULL);
++		if (ret < 0) {
++			perror("select");
++			exit(1);
++		}
++		if (FD_ISSET(0, &rfds)) {
++			ret = read(0, inbuf + insiz, BUFSIZE - insiz);
++			if (ret < 0 && errno != EAGAIN)
++				exit(1);
++			if (ret == 0) {
++				while (insiz) {
++					vchan_wr();
++					libxenvchan_wait(ctrl);
++				}
++				return 0;
++			}
++			if (ret)
++				insiz += ret;
++			vchan_wr();
++		}
++		if (FD_ISSET(libxenvchan_fd, &rfds)) {
++			libxenvchan_wait(ctrl);
++			vchan_wr();
++		}
++		if (FD_ISSET(1, &wfds))
++			stdout_wr();
++		while (libxenvchan_data_ready(ctrl) && outsiz < BUFSIZE) {
++			ret = libxenvchan_read(ctrl, outbuf + outsiz, BUFSIZE - outsiz);
++			if (ret < 0)
++				exit(1);
++			outsiz += ret;
++			stdout_wr();
++		}
++		if (!libxenvchan_is_open(ctrl)) {
++			fcntl(1, F_SETFL, 0);
++			while (outsiz)
++				stdout_wr();
++			return 0;
++		}
++	}
++}
+diff -r 5ab7e7fe7e6f tools/libvchan/node.c
+--- /dev/null
++++ b/tools/libvchan/node.c
+@@ -0,0 +1,169 @@
++/**
++ * @file
++ * @section AUTHORS
++ *
++ * Copyright (C) 2010  Rafal Wojtczuk  <rafal@invisiblethingslab.com>
++ *
++ *  Authors:
++ *       Rafal Wojtczuk  <rafal@invisiblethingslab.com>
++ *       Daniel De Graaf <dgdegra@tycho.nsa.gov>
++ *
++ * @section LICENSE
++ *
++ *  This program is free software; you can redistribute it and/or
++ *  modify it under the terms of the GNU Lesser General Public
++ *  License as published by the Free Software Foundation; either
++ *  version 2.1 of the License, or (at your option) any later version.
++ *
++ *  This program is distributed in the hope that it will be useful,
++ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ *  Lesser General Public License for more details.
++ *
++ *  You should have received a copy of the GNU Lesser General Public
++ *  License along with this program; if not, write to the Free Software
++ *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA
++ *
++ * @section DESCRIPTION
++ *
++ * This is a test program for libxenvchan.  Communications are in one direction,
++ * either server (grant offeror) to client or vice versa.
++ */
++
++#include <stdlib.h>
++#include <stdio.h>
++#include <string.h>
++#include <unistd.h>
++#include <time.h>
++
++#include <libxenvchan.h>
++
++int libxenvchan_write_all(struct libxenvchan *ctrl, char *buf, int size)
++{
++	int written = 0;
++	int ret;
++	while (written < size) {
++		ret = libxenvchan_write(ctrl, buf + written, size - written);
++		if (ret <= 0) {
++			perror("write");
++			exit(1);
++		}
++		written += ret;
++	}
++	return size;
++}
++
++int write_all(int fd, char *buf, int size)
++{
++	int written = 0;
++	int ret;
++	while (written < size) {
++		ret = write(fd, buf + written, size - written);
++		if (ret <= 0) {
++			perror("write");
++			exit(1);
++		}
++		written += ret;
++	}
++	return size;
++}
++
++void usage(char** argv)
++{
++	fprintf(stderr, "usage:\n"
++		"%s [client|server] [read|write] domid nodepath\n", argv[0]);
++	exit(1);
++}
++
++#define BUFSIZE 5000
++char buf[BUFSIZE];
++void reader(struct libxenvchan *ctrl)
++{
++	int size;
++	for (;;) {
++		size = rand() % (BUFSIZE - 1) + 1;
++		size = libxenvchan_read(ctrl, buf, size);
++		fprintf(stderr, "#");
++		if (size < 0) {
++			perror("read vchan");
++			libxenvchan_close(ctrl);
++			exit(1);
++		}
++		size = write_all(1, buf, size);
++		if (size < 0) {
++			perror("stdout write");
++			exit(1);
++		}
++		if (size == 0) {
++			perror("write size=0?\n");
++			exit(1);
++		}
++	}
++}
++
++void writer(struct libxenvchan *ctrl)
++{
++	int size;
++	for (;;) {
++		size = rand() % (BUFSIZE - 1) + 1;
++		size = read(0, buf, size);
++		if (size < 0) {
++			perror("read stdin");
++			libxenvchan_close(ctrl);
++			exit(1);
++		}
++		if (size == 0)
++			break;
++		size = libxenvchan_write_all(ctrl, buf, size);
++		fprintf(stderr, "#");
++		if (size < 0) {
++			perror("vchan write");
++			exit(1);
++		}
++		if (size == 0) {
++			perror("write size=0?\n");
++			exit(1);
++		}
++	}
++}
++
++
++/**
++	Simple libxenvchan application, both client and server.
++	One side does writing, the other side does reading; both from
++	standard input/output fds.
++*/
++int main(int argc, char **argv)
++{
++	int seed = time(0);
++	struct libxenvchan *ctrl = 0;
++	int wr = 0;
++	if (argc < 4)
++		usage(argv);
++	if (!strcmp(argv[2], "read"))
++		wr = 0;
++	else if (!strcmp(argv[2], "write"))
++		wr = 1;
++	else
++		usage(argv);
++	if (!strcmp(argv[1], "server"))
++		ctrl = libxenvchan_server_init(NULL, atoi(argv[3]), argv[4], 0, 0);
++	else if (!strcmp(argv[1], "client"))
++		ctrl = libxenvchan_client_init(NULL, atoi(argv[3]), argv[4]);
++	else
++		usage(argv);
++	if (!ctrl) {
++		perror("libxenvchan_*_init");
++		exit(1);
++	}
++	ctrl->blocking = 1;
++
++	srand(seed);
++	fprintf(stderr, "seed=%d\n", seed);
++	if (wr)
++		writer(ctrl);
++	else
++		reader(ctrl);
++	libxenvchan_close(ctrl);
++	return 0;
++}
+diff -r 5ab7e7fe7e6f xen/include/public/io/libxenvchan.h
+--- /dev/null
++++ b/xen/include/public/io/libxenvchan.h
+@@ -0,0 +1,97 @@
++/**
++ * @file
++ * @section AUTHORS
++ *
++ * Copyright (C) 2010  Rafal Wojtczuk  <rafal@invisiblethingslab.com>
++ *
++ *  Authors:
++ *       Rafal Wojtczuk  <rafal@invisiblethingslab.com>
++ *       Daniel De Graaf <dgdegra@tycho.nsa.gov>
++ *
++ * @section LICENSE
++ *
++ *  This library is free software; you can redistribute it and/or
++ *  modify it under the terms of the GNU Lesser General Public
++ *  License as published by the Free Software Foundation; either
++ *  version 2.1 of the License, or (at your option) any later version.
++ *
++ *  This library is distributed in the hope that it will be useful,
++ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ *  Lesser General Public License for more details.
++ *
++ *  You should have received a copy of the GNU Lesser General Public
++ *  License along with this library; if not, write to the Free Software
++ *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA
++ *
++ * @section DESCRIPTION
++ *
++ *  Originally borrowed from the Qubes OS Project, http://www.qubes-os.org,
++ *  this code has been substantially rewritten to use the gntdev and gntalloc
++ *  devices instead of raw MFNs and map_foreign_range.
++ *
++ *  This is a library for inter-domain communication.  A standard Xen ring
++ *  buffer is used, with a datagram-based interface built on top.  The grant
++ *  reference and event channels are shared in XenStore under a user-specified
++ *  path.
++ *
++ *  The ring.h macros define an asymmetric interface to a shared data structure
++ *  that assumes all rings reside in a single contiguous memory space. This is
++ *  not suitable for vchan because the interface to the ring is symmetric except
++ *  for the setup. Unlike the producer-consumer rings defined in ring.h, the
++ *  size of the rings used in vchan are determined at execution time instead of
++ *  compile time, so the macros in ring.h cannot be used to access the rings.
++ */
++
++#include <stdint.h>
++#include <sys/types.h>
++
++struct ring_shared {
++	uint32_t cons, prod;
++};
++
++#define VCHAN_NOTIFY_WRITE 0x1
++#define VCHAN_NOTIFY_READ 0x2
++
++/**
++ * vchan_interface: primary shared data structure
++ */
++struct vchan_interface {
++	/**
++	 * Standard consumer/producer interface, one pair per buffer
++	 * left is client write, server read
++	 * right is client read, server write
++	 */
++	struct ring_shared left, right;
++	/**
++	 * size of the rings, which determines their location
++	 * 10   - at offset 1024 in ring's page
++	 * 11   - at offset 2048 in ring's page
++	 * 12+  - uses 2^(N-12) grants to describe the multi-page ring
++	 * These should remain constant once the page is shared.
++	 * Only one of the two orders can be 10 (or 11).
++	 */
++	uint16_t left_order, right_order;
++	/**
++	 * Shutdown detection:
++	 *  0: client (or server) has exited
++	 *  1: client (or server) is connected
++	 *  2: client has not yet connected
++	 */
++	uint8_t cli_live, srv_live;
++	/**
++	 * Notification bits:
++	 *  VCHAN_NOTIFY_WRITE: send notify when data is written
++	 *  VCHAN_NOTIFY_READ: send notify when data is read (consumed)
++	 * cli_notify is used for the client to inform the server of its action
++	 */
++	uint8_t cli_notify, srv_notify;
++	/**
++	 * Grant list: ordering is left, right. Must not extend into actual ring
++	 * or grow beyond the end of the initial shared page.
++	 * These should remain constant once the page is shared, to allow
++	 * for possible remapping by a client that restarts.
++	 */
++	uint32_t grants[0];
++};
++

@@ -1,0 +1,107 @@
+# HG changeset patch
+# User George Dunlap <george.dunlap@eu.citrix.com>
+# Date 1322665584 28800
+# Node ID 31f751ef3e009f20b1515416ebffa6e19221a56b
+# Parent  77421dbd48711e625dfc835df5e0fa7a3e09b634
+x86/hvm/vmx: Trace traps and realmode exits
+
+Add some more tracing to vmexits that don't currently have
+trace information:
+ * VMX realmode emulation
+ * Various VMX traps
+ * Fast-pathed APIC accesses
+
+Signed-off-by: George Dunlap <george.dunlap@eu.citrix.com>
+Committed-by: Keir Fraser <keir@xen.org>
+
+diff --git a/xen/arch/x86/hvm/vmx/vmx.c b/xen/arch/x86/hvm/vmx/vmx.c
+--- a/xen/arch/x86/hvm/vmx/vmx.c
++++ b/xen/arch/x86/hvm/vmx/vmx.c
+@@ -2217,6 +2217,7 @@ static int vmx_handle_eoi_write(void)
+     {
+         update_guest_eip(); /* Safe: APIC data write */
+         vlapic_EOI_set(vcpu_vlapic(current));
++        HVMTRACE_0D(VLAPIC);
+         return 1;
+     }
+ 
+@@ -2324,6 +2325,7 @@ asmlinkage void vmx_vmexit_handler(struc
+             {
+                 perfc_incr(realmode_exits);
+                 v->arch.hvm_vmx.vmx_emulate = 1;
++                HVMTRACE_0D(REALMODE_EMULATE);
+                 return;
+             }
+         case EXIT_REASON_EXTERNAL_INTERRUPT:
+@@ -2343,6 +2345,7 @@ asmlinkage void vmx_vmexit_handler(struc
+         default:
+             v->arch.hvm_vmx.vmx_emulate = 1;
+             perfc_incr(realmode_exits);
++            HVMTRACE_0D(REALMODE_EMULATE);
+             return;
+         }
+     }
+@@ -2386,6 +2389,7 @@ asmlinkage void vmx_vmexit_handler(struc
+              * Table 23-1, "Exit Qualification for Debug Exceptions").
+              */
+             exit_qualification = __vmread(EXIT_QUALIFICATION);
++            HVMTRACE_1D(TRAP_DEBUG, exit_qualification);
+             write_debugreg(6, exit_qualification | 0xffff0ff0);
+             if ( !v->domain->debugger_attached || cpu_has_monitor_trap_flag )
+                 goto exit_and_crash;
+@@ -2393,6 +2397,7 @@ asmlinkage void vmx_vmexit_handler(struc
+             break;
+         case TRAP_int3: 
+         {
++            HVMTRACE_1D(TRAP, vector);
+             if ( v->domain->debugger_attached )
+             {
+                 update_guest_eip(); /* Safe: INT3 */            
+@@ -2415,6 +2420,7 @@ asmlinkage void vmx_vmexit_handler(struc
+             goto exit_and_crash;
+         }
+         case TRAP_no_device:
++            HVMTRACE_1D(TRAP, vector);
+             vmx_fpu_dirty_intercept();
+             break;
+         case TRAP_page_fault:
+@@ -2455,9 +2461,11 @@ asmlinkage void vmx_vmexit_handler(struc
+             /* Already handled above. */
+             break;
+         case TRAP_invalid_op:
++            HVMTRACE_1D(TRAP, vector);
+             vmx_vmexit_ud_intercept(regs);
+             break;
+         default:
++            HVMTRACE_1D(TRAP, vector);
+             goto exit_and_crash;
+         }
+         break;
+diff --git a/xen/include/asm-x86/hvm/trace.h b/xen/include/asm-x86/hvm/trace.h
+--- a/xen/include/asm-x86/hvm/trace.h
++++ b/xen/include/asm-x86/hvm/trace.h
+@@ -50,6 +50,10 @@
+ #define DO_TRC_HVM_CLTS        DEFAULT_HVM_MISC
+ #define DO_TRC_HVM_LMSW        DEFAULT_HVM_MISC
+ #define DO_TRC_HVM_LMSW64      DEFAULT_HVM_MISC
++#define DO_TRC_HVM_REALMODE_EMULATE DEFAULT_HVM_MISC 
++#define DO_TRC_HVM_TRAP             DEFAULT_HVM_MISC
++#define DO_TRC_HVM_TRAP_DEBUG       DEFAULT_HVM_MISC
++#define DO_TRC_HVM_VLAPIC           DEFAULT_HVM_MISC
+ 
+ 
+ #ifdef __x86_64__
+diff --git a/xen/include/public/trace.h b/xen/include/public/trace.h
+--- a/xen/include/public/trace.h
++++ b/xen/include/public/trace.h
+@@ -164,6 +164,10 @@
+ #define TRC_HVM_RDTSC           (TRC_HVM_HANDLER + 0x1a)
+ #define TRC_HVM_INTR_WINDOW     (TRC_HVM_HANDLER + 0x20)
+ #define TRC_HVM_NPF             (TRC_HVM_HANDLER + 0x21)
++#define TRC_HVM_REALMODE_EMULATE (TRC_HVM_HANDLER + 0x22)
++#define TRC_HVM_TRAP             (TRC_HVM_HANDLER + 0x23)
++#define TRC_HVM_TRAP_DEBUG       (TRC_HVM_HANDLER + 0x24)
++#define TRC_HVM_VLAPIC           (TRC_HVM_HANDLER + 0x25)
+ 
+ #define TRC_HVM_IOPORT_WRITE    (TRC_HVM_HANDLER + 0x216)
+ #define TRC_HVM_IOMEM_WRITE     (TRC_HVM_HANDLER + 0x217)

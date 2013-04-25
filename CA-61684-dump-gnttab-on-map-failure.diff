@@ -1,0 +1,21 @@
+diff -r c1d487f2e6c8 -r 2559cfb8ec60 xen/common/grant_table.c
+--- a/xen/common/grant_table.c	Thu Aug 04 20:25:38 2011 +0100
++++ b/xen/common/grant_table.c	Mon Aug 15 18:22:21 2011 +0100
+@@ -608,9 +608,17 @@ __gnttab_map_grant_ref(
+ 
+         if ( !iomem_access_permitted(rd, frame, frame) )
+         {
++            unsigned long gfn;
++
++            gfn = sha1 ? sha1->frame : sha2->full_page.frame;
++
+             gdprintk(XENLOG_WARNING,
+                      "Iomem mapping not permitted %lx (domain %d)\n", 
+                      frame, rd->domain_id);
++            printk("[%3d]    %5d 0x%06lx 0x%08x      %5d 0x%06"PRIx64" 0x%02x\n",
++                   op->ref, act->domid, act->frame, act->pin,
++                   shah->domid, gfn, (unsigned)*status);
++
+             rc = GNTST_general_error;
+             goto undo_out;
+         }

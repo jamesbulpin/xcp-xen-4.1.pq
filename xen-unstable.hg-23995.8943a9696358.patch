@@ -1,0 +1,204 @@
+
+# HG changeset patch
+# User Yang Zhang <yang.z.zhang@intel.com>
+# Date 1319557607 -3600
+# Node ID 8943a9696358eb4f879cb64053a5f296de4ff173
+# Parent  662dbf6ee71c3bd14db0d32cc69b85f8513527e3
+x86 pm: provide CC7/PC2 residency
+
+Sandy bridge introduces new MSR to get cc7/pc2 residency (core C-state
+7/package C-state 2). Print the cc7/pc2 residency when on sandy bridge
+platform.
+
+Signed-off-by: Yang Zhang <yang.z.zhang@intel.com>
+Committed-by: Keir Fraser <keir@xen.org>
+
+diff -r 662dbf6ee71c -r 8943a9696358 tools/libxc/xc_pm.c
+--- a/tools/libxc/xc_pm.c	Mon Oct 24 18:01:07 2011 +0100
++++ b/tools/libxc/xc_pm.c	Tue Oct 25 16:46:47 2011 +0100
+@@ -155,11 +155,13 @@ int xc_pm_get_cxstat(xc_interface *xch, 
+     cxpt->nr = sysctl.u.get_pmstat.u.getcx.nr;
+     cxpt->last = sysctl.u.get_pmstat.u.getcx.last;
+     cxpt->idle_time = sysctl.u.get_pmstat.u.getcx.idle_time;
++    cxpt->pc2 = sysctl.u.get_pmstat.u.getcx.pc2;
+     cxpt->pc3 = sysctl.u.get_pmstat.u.getcx.pc3;
+     cxpt->pc6 = sysctl.u.get_pmstat.u.getcx.pc6;
+     cxpt->pc7 = sysctl.u.get_pmstat.u.getcx.pc7;
+     cxpt->cc3 = sysctl.u.get_pmstat.u.getcx.cc3;
+     cxpt->cc6 = sysctl.u.get_pmstat.u.getcx.cc6;
++    cxpt->cc7 = sysctl.u.get_pmstat.u.getcx.cc7;
+ 
+ unlock_2:
+     xc_hypercall_bounce_post(xch, residencies);
+diff -r 662dbf6ee71c -r 8943a9696358 tools/libxc/xenctrl.h
+--- a/tools/libxc/xenctrl.h	Mon Oct 24 18:01:07 2011 +0100
++++ b/tools/libxc/xenctrl.h	Tue Oct 25 16:46:47 2011 +0100
+@@ -1733,11 +1733,13 @@ struct xc_cx_stat {
+     uint64_t idle_time;    /* idle time from boot */
+     uint64_t *triggers;    /* Cx trigger counts */
+     uint64_t *residencies; /* Cx residencies */
++    uint64_t pc2;
+     uint64_t pc3;
+     uint64_t pc6;
+     uint64_t pc7;
+     uint64_t cc3;
+     uint64_t cc6;
++    uint64_t cc7;
+ };
+ typedef struct xc_cx_stat xc_cx_stat_t;
+ 
+diff -r 662dbf6ee71c -r 8943a9696358 tools/misc/xenpm.c
+--- a/tools/misc/xenpm.c	Mon Oct 24 18:01:07 2011 +0100
++++ b/tools/misc/xenpm.c	Tue Oct 25 16:46:47 2011 +0100
+@@ -92,13 +92,17 @@ static void print_cxstat(int cpuid, stru
+         printf("                       residency  [%020"PRIu64" ms]\n",
+                cxstat->residencies[i]/1000000UL);
+     }
+-    printf("pc3                  : [%020"PRIu64" ms]\n"
++    printf("pc2                  : [%020"PRIu64" ms]\n"
++           "pc3                  : [%020"PRIu64" ms]\n"
+            "pc6                  : [%020"PRIu64" ms]\n"
+            "pc7                  : [%020"PRIu64" ms]\n",
+-           cxstat->pc3/1000000UL, cxstat->pc6/1000000UL, cxstat->pc7/1000000UL);
++            cxstat->pc2/1000000UL, cxstat->pc3/1000000UL,
++            cxstat->pc6/1000000UL, cxstat->pc7/1000000UL);
+     printf("cc3                  : [%020"PRIu64" ms]\n"
+-           "cc6                  : [%020"PRIu64" ms]\n",
+-           cxstat->cc3/1000000UL, cxstat->cc6/1000000UL);
++           "cc6                  : [%020"PRIu64" ms]\n"
++           "cc7                  : [%020"PRIu64" ms]\n",
++            cxstat->cc3/1000000UL, cxstat->cc6/1000000UL,
++            cxstat->cc7/1000000UL);
+     printf("\n");
+ }
+ 
+@@ -458,6 +462,9 @@ static void signal_int_handler(int signo
+                         break;
+                 }
+                 printf("Socket %d\n", socket_ids[i]);
++                res = cxstat_end[j].pc2 - cxstat_start[j].pc2;
++                printf("\tPC2\t%"PRIu64" ms\t%.2f%%\n",  res / 1000000UL,
++                       100UL * res / (double)sum_cx[j]);
+                 res = cxstat_end[j].pc3 - cxstat_start[j].pc3;
+                 printf("\tPC3\t%"PRIu64" ms\t%.2f%%\n",  res / 1000000UL, 
+                        100UL * res / (double)sum_cx[j]);
+@@ -482,6 +489,9 @@ static void signal_int_handler(int signo
+                     res = cxstat_end[j].cc6 - cxstat_start[j].cc6;
+                     printf("\t\tCC6\t%"PRIu64" ms\t%.2f%%\n",  res / 1000000UL, 
+                            100UL * res / (double)sum_cx[j]);
++                    res = cxstat_end[j].cc7 - cxstat_start[j].cc7;
++                    printf("\t\tCC7\t%"PRIu64" ms\t%.2f%%\n",  res / 1000000UL,
++                           100UL * res / (double)sum_cx[j]);
+                     printf("\n");
+ 
+                 }
+diff -r 662dbf6ee71c -r 8943a9696358 xen/arch/x86/acpi/cpu_idle.c
+--- a/xen/arch/x86/acpi/cpu_idle.c	Mon Oct 24 18:01:07 2011 +0100
++++ b/xen/arch/x86/acpi/cpu_idle.c	Tue Oct 25 16:46:47 2011 +0100
+@@ -60,11 +60,13 @@
+ 
+ #define GET_HW_RES_IN_NS(msr, val) \
+     do { rdmsrl(msr, val); val = tsc_ticks2ns(val); } while( 0 )
++#define GET_PC2_RES(val)  GET_HW_RES_IN_NS(0x60D, val) /* SNB only */
+ #define GET_PC3_RES(val)  GET_HW_RES_IN_NS(0x3F8, val)
+ #define GET_PC6_RES(val)  GET_HW_RES_IN_NS(0x3F9, val)
+ #define GET_PC7_RES(val)  GET_HW_RES_IN_NS(0x3FA, val)
+ #define GET_CC3_RES(val)  GET_HW_RES_IN_NS(0x3FC, val)
+ #define GET_CC6_RES(val)  GET_HW_RES_IN_NS(0x3FD, val)
++#define GET_CC7_RES(val)  GET_HW_RES_IN_NS(0x3FE, val) /* SNB only */
+ 
+ static void lapic_timer_nop(void) { }
+ static void (*lapic_timer_off)(void);
+@@ -85,11 +87,13 @@ static struct acpi_processor_power *__re
+ 
+ struct hw_residencies
+ {
++    uint64_t pc2;
+     uint64_t pc3;
+     uint64_t pc6;
+     uint64_t pc7;
+     uint64_t cc3;
+     uint64_t cc6;
++    uint64_t cc7;
+ };
+ 
+ static void do_get_hw_residencies(void *arg)
+@@ -116,6 +120,17 @@ static void do_get_hw_residencies(void *
+         GET_CC3_RES(hw_res->cc3);
+         GET_CC6_RES(hw_res->cc6);
+         break;
++    /* Sandy bridge */
++    case 0x2A:
++    case 0x2D:
++        GET_PC2_RES(hw_res->pc2);
++        GET_PC3_RES(hw_res->pc3);
++        GET_PC6_RES(hw_res->pc6);
++        GET_PC7_RES(hw_res->pc7);
++        GET_CC3_RES(hw_res->cc3);
++        GET_CC6_RES(hw_res->cc6);
++        GET_CC7_RES(hw_res->cc7);
++        break;
+     }
+ }
+ 
+@@ -134,10 +149,10 @@ static void print_hw_residencies(uint32_
+ 
+     get_hw_residencies(cpu, &hw_res);
+ 
+-    printk("PC3[%"PRId64"] PC6[%"PRId64"] PC7[%"PRId64"]\n",
+-           hw_res.pc3, hw_res.pc6, hw_res.pc7);
+-    printk("CC3[%"PRId64"] CC6[%"PRId64"]\n",
+-           hw_res.cc3, hw_res.cc6);
++    printk("PC2[%"PRId64"] PC3[%"PRId64"] PC6[%"PRId64"] PC7[%"PRId64"]\n",
++           hw_res.pc2, hw_res.pc3, hw_res.pc6, hw_res.pc7);
++    printk("CC3[%"PRId64"] CC6[%"PRId64"] CC7[%"PRId64"]\n",
++           hw_res.cc3, hw_res.cc6,hw_res.cc7);
+ }
+ 
+ static char* acpi_cstate_method_name[] =
+@@ -1057,11 +1072,13 @@ int pmstat_get_cx_stat(uint32_t cpuid, s
+              copy_to_guest_offset(stat->residencies, 0, &res, 1) )
+             return -EFAULT;
+ 
++        stat->pc2 = 0;
+         stat->pc3 = 0;
+         stat->pc6 = 0;
+         stat->pc7 = 0;
+         stat->cc3 = 0;
+         stat->cc6 = 0;
++        stat->cc7 = 0;
+         return 0;
+     }
+ 
+@@ -1086,11 +1103,13 @@ int pmstat_get_cx_stat(uint32_t cpuid, s
+ 
+     get_hw_residencies(cpuid, &hw_res);
+ 
++    stat->pc2 = hw_res.pc2;
+     stat->pc3 = hw_res.pc3;
+     stat->pc6 = hw_res.pc6;
+     stat->pc7 = hw_res.pc7;
+     stat->cc3 = hw_res.cc3;
+     stat->cc6 = hw_res.cc6;
++    stat->cc7 = hw_res.cc7;
+ 
+     return 0;
+ }
+diff -r 662dbf6ee71c -r 8943a9696358 xen/include/public/sysctl.h
+--- a/xen/include/public/sysctl.h	Mon Oct 24 18:01:07 2011 +0100
++++ b/xen/include/public/sysctl.h	Tue Oct 25 16:46:47 2011 +0100
+@@ -225,11 +225,13 @@ struct pm_cx_stat {
+     uint64_aligned_t idle_time;                 /* idle time from boot */
+     XEN_GUEST_HANDLE_64(uint64) triggers;    /* Cx trigger counts */
+     XEN_GUEST_HANDLE_64(uint64) residencies; /* Cx residencies */
++    uint64_aligned_t pc2;
+     uint64_aligned_t pc3;
+     uint64_aligned_t pc6;
+     uint64_aligned_t pc7;
+     uint64_aligned_t cc3;
+     uint64_aligned_t cc6;
++    uint64_aligned_t cc7;
+ };
+ 
+ struct xen_sysctl_get_pmstat {
+

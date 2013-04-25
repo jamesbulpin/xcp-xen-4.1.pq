@@ -1,0 +1,166 @@
+# HG changeset patch
+# User Boris Ostrovsky <boris.ostrovsky@amd.com>
+# Date 1340028523 -3600
+# Node ID c272cfe25bea00375fb65c339926c83b6e830230
+# Parent 70121499b47a2b013d27a72778a31ec052a0a7b9
+x86, cpufreq: Change powernow's CPB status immediately
+
+When command to modify turbo mode (CPB on AMD processors) comes
+in the actual change happens later, when P-state transition is
+requested. There is no time limit on when this transition will
+occur and therefore change in CPB state may take long time from
+the moment when command to toggle it is issued.
+
+This patch makes CPB mode change happen immediately when request
+is made.
+
+Signed-off-by: Boris Ostrovsky <boris.ostrovsky@amd.com>
+Committed-by: Keir Fraser <keir@xen.org>
+
+diff -r 70121499b47a xen/arch/x86/acpi/cpufreq/powernow.c
+--- a/xen/arch/x86/acpi/cpufreq/powernow.c
++++ b/xen/arch/x86/acpi/cpufreq/powernow.c
+@@ -76,16 +76,37 @@ static void transition_pstate(void *drvc
+     struct drv_cmd *cmd;
+     cmd = (struct drv_cmd *) drvcmd;
+ 
+-    if (cmd->turbo != CPUFREQ_TURBO_UNSUPPORTED) {
++
++    wrmsrl(MSR_PSTATE_CTRL, cmd->val);
++}
++
++static void update_cpb(void *data)
++{
++    struct cpufreq_policy *policy = (struct cpufreq_policy *)data;
++
++    if (policy->turbo != CPUFREQ_TURBO_UNSUPPORTED) {
+         uint64_t msr_content;
++ 
+         rdmsrl(MSR_K8_HWCR, msr_content);
+-        if (cmd->turbo == CPUFREQ_TURBO_ENABLED)
++
++        if (policy->turbo == CPUFREQ_TURBO_ENABLED)
+             msr_content &= ~MSR_HWCR_CPBDIS_MASK;
+         else
+             msr_content |= MSR_HWCR_CPBDIS_MASK; 
++
+         wrmsrl(MSR_K8_HWCR, msr_content);
+     }
+-    wrmsrl(MSR_PSTATE_CTRL, cmd->val);
++}
++
++static int powernow_cpufreq_update (int cpuid,
++				     struct cpufreq_policy *policy)
++{
++    if (!cpumask_test_cpu(cpuid, &cpu_online_map))
++        return -EINVAL;
++
++    on_selected_cpus(cpumask_of(cpuid), update_cpb, policy, 1);
++
++    return 0;
+ }
+ 
+ static int powernow_cpufreq_target(struct cpufreq_policy *policy,
+@@ -308,7 +329,8 @@ static struct cpufreq_driver powernow_cp
+     .verify = powernow_cpufreq_verify,
+     .target = powernow_cpufreq_target,
+     .init   = powernow_cpufreq_cpu_init,
+-    .exit   = powernow_cpufreq_cpu_exit
++    .exit   = powernow_cpufreq_cpu_exit,
++    .update = powernow_cpufreq_update
+ };
+ 
+ unsigned int powernow_register_driver()
+diff -r 70121499b47a xen/drivers/acpi/pmstat.c
+--- a/xen/drivers/acpi/pmstat.c
++++ b/xen/drivers/acpi/pmstat.c
+@@ -501,13 +501,13 @@ int do_pm_op(struct xen_sysctl_pm_op *op
+ 
+     case XEN_SYSCTL_pm_op_enable_turbo:
+     {
+-        cpufreq_enable_turbo(op->cpuid);
++        ret = cpufreq_update_turbo(op->cpuid, CPUFREQ_TURBO_ENABLED);
+         break;
+     }
+ 
+     case XEN_SYSCTL_pm_op_disable_turbo:
+     {
+-        cpufreq_disable_turbo(op->cpuid);
++        ret = cpufreq_update_turbo(op->cpuid, CPUFREQ_TURBO_DISABLED);
+         break;
+     }
+ 
+diff -r 70121499b47a xen/drivers/cpufreq/utility.c
+--- a/xen/drivers/cpufreq/utility.c
++++ b/xen/drivers/cpufreq/utility.c
+@@ -395,23 +395,38 @@ int cpufreq_driver_getavg(unsigned int c
+     return policy->cur;
+ }
+ 
+-void cpufreq_enable_turbo(int cpuid)
++int cpufreq_update_turbo(int cpuid, int new_state)
+ {
+     struct cpufreq_policy *policy;
++    int curr_state;
++    int ret = 0;
++
++    if (new_state != CPUFREQ_TURBO_ENABLED &&
++        new_state != CPUFREQ_TURBO_DISABLED)
++        return -EINVAL;
+ 
+     policy = per_cpu(cpufreq_cpu_policy, cpuid);
+-    if (policy && policy->turbo != CPUFREQ_TURBO_UNSUPPORTED)
+-        policy->turbo = CPUFREQ_TURBO_ENABLED;
++    if (!policy)
++        return -EACCES;
++
++    if (policy->turbo == CPUFREQ_TURBO_UNSUPPORTED)
++        return -EOPNOTSUPP;
++
++    curr_state = policy->turbo;
++    if (curr_state == new_state)
++        return 0;
++
++    policy->turbo = new_state;
++    if (cpufreq_driver->update)
++    {
++        ret = cpufreq_driver->update(cpuid, policy);
++        if (ret)
++            policy->turbo = curr_state;
++    }
++
++    return ret;
+ }
+ 
+-void cpufreq_disable_turbo(int cpuid)
+-{
+-    struct cpufreq_policy *policy;
+-
+-    policy = per_cpu(cpufreq_cpu_policy, cpuid);
+-    if (policy && policy->turbo != CPUFREQ_TURBO_UNSUPPORTED)
+-        policy->turbo = CPUFREQ_TURBO_DISABLED;
+-}
+ 
+ int cpufreq_get_turbo_status(int cpuid)
+ {
+diff -r 70121499b47a xen/include/acpi/cpufreq/cpufreq.h
+--- a/xen/include/acpi/cpufreq/cpufreq.h
++++ b/xen/include/acpi/cpufreq/cpufreq.h
+@@ -121,8 +121,7 @@ extern int cpufreq_driver_getavg(unsigne
+ #define CPUFREQ_TURBO_UNSUPPORTED   0
+ #define CPUFREQ_TURBO_ENABLED       1
+ 
+-extern void cpufreq_enable_turbo(int cpuid);
+-extern void cpufreq_disable_turbo(int cpuid);
++extern int cpufreq_update_turbo(int cpuid, int new_state);
+ extern int cpufreq_get_turbo_status(int cpuid);
+ 
+ static __inline__ int 
+@@ -143,6 +142,7 @@ struct cpufreq_driver {
+     char   name[CPUFREQ_NAME_LEN];
+     int    (*init)(struct cpufreq_policy *policy);
+     int    (*verify)(struct cpufreq_policy *policy);
++    int    (*update)(int cpuid, struct cpufreq_policy *policy);
+     int    (*target)(struct cpufreq_policy *policy,
+                      unsigned int target_freq,
+                      unsigned int relation);

@@ -1,0 +1,5671 @@
+# HG changeset patch
+# User Jon Ludlam <jonathan.ludlam@eu.citrix.com>
+# Date 1317293932 -3600
+# Node ID ba4cba41f5550684719bc95a25f8f51b92fb604f
+# Parent ba90c52a219ed2409f3c17f357cd526baa028070
+[OCAML] Rename the ocamlfind packages
+
+ocamlfind does not support namespaces, so to avoid
+name clashes the ocamlfind package names have been
+changed. Note that this does not change the names
+of the actual modules themselves.
+
+xb becomes xenbus, xc becomes xenctrl, xl becomes xenlight,
+xs becomes xenstore, eventchn becomes xeneventchn.
+
+Signed-off-by: Jon Ludlam <jonathan.ludlam@eu.citrix.com>
+
+diff --git a/tools/ocaml/libs/eventchn/META.in b/tools/ocaml/libs/eventchn/META.in
+--- a/tools/ocaml/libs/eventchn/META.in
++++ b/tools/ocaml/libs/eventchn/META.in
+@@ -1,5 +1,5 @@
+ version = "@VERSION@"
+ description = "Eventchn interface extension"
+ requires = "unix"
+-archive(byte) = "eventchn.cma"
+-archive(native) = "eventchn.cmxa"
++archive(byte) = "xeneventchn.cma"
++archive(native) = "xeneventchn.cmxa"
+diff --git a/tools/ocaml/libs/eventchn/Makefile b/tools/ocaml/libs/eventchn/Makefile
+--- a/tools/ocaml/libs/eventchn/Makefile
++++ b/tools/ocaml/libs/eventchn/Makefile
+@@ -2,9 +2,11 @@ TOPLEVEL=$(CURDIR)/../..
+ XEN_ROOT=$(TOPLEVEL)/../..
+ include $(TOPLEVEL)/common.make
+ 
+-OBJS = eventchn
++OBJS = xeneventchn
+ INTF = $(foreach obj, $(OBJS),$(obj).cmi)
+-LIBS = eventchn.cma eventchn.cmxa
++LIBS = xeneventchn.cma xeneventchn.cmxa
++
++LIBS_xeneventchn = $(LDLIBS_libxenctrl)
+ 
+ all: $(INTF) $(LIBS) $(PROGRAMS)
+ 
+@@ -12,20 +14,20 @@ bins: $(PROGRAMS)
+ 
+ libs: $(LIBS)
+ 
+-eventchn_OBJS = $(OBJS)
+-eventchn_C_OBJS = eventchn_stubs
++xeneventchn_OBJS = $(OBJS)
++xeneventchn_C_OBJS = xeneventchn_stubs
+ 
+-OCAML_LIBRARY = eventchn
++OCAML_LIBRARY = xeneventchn
+ 
+ .PHONY: install
+ install: $(LIBS) META
+ 	mkdir -p $(OCAMLDESTDIR)
+-	ocamlfind remove -destdir $(OCAMLDESTDIR) eventchn
+-	ocamlfind install -destdir $(OCAMLDESTDIR) -ldconf ignore eventchn META $(INTF) $(LIBS) *.a *.so *.cmx
++	ocamlfind remove -destdir $(OCAMLDESTDIR) xeneventchn
++	ocamlfind install -destdir $(OCAMLDESTDIR) -ldconf ignore xeneventchn META $(INTF) $(LIBS) *.a *.so *.cmx
+ 
+ .PHONY: uninstall
+ uninstall:
+-	ocamlfind remove -destdir $(OCAMLDESTDIR) eventchn
++	ocamlfind remove -destdir $(OCAMLDESTDIR) xeneventchn
+ 
+ include $(TOPLEVEL)/Makefile.rules
+ 
+diff --git a/tools/ocaml/libs/eventchn/eventchn.ml b/tools/ocaml/libs/eventchn/eventchn.ml
+deleted file mode 100644
+--- a/tools/ocaml/libs/eventchn/eventchn.ml
++++ /dev/null
+@@ -1,30 +0,0 @@
+-(*
+- * Copyright (C) 2006-2007 XenSource Ltd.
+- * Copyright (C) 2008      Citrix Ltd.
+- * Author Vincent Hanquez <vincent.hanquez@eu.citrix.com>
+- *
+- * This program is free software; you can redistribute it and/or modify
+- * it under the terms of the GNU Lesser General Public License as published
+- * by the Free Software Foundation; version 2.1 only. with the special
+- * exception on linking described in file LICENSE.
+- *
+- * This program is distributed in the hope that it will be useful,
+- * but WITHOUT ANY WARRANTY; without even the implied warranty of
+- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+- * GNU Lesser General Public License for more details.
+- *)
+-
+-exception Error of string
+-
+-type handle
+-
+-external init: unit -> handle = "stub_eventchn_init"
+-external fd: handle -> Unix.file_descr = "stub_eventchn_fd"
+-external notify: handle -> int -> unit = "stub_eventchn_notify"
+-external bind_interdomain: handle -> int -> int -> int = "stub_eventchn_bind_interdomain"
+-external bind_dom_exc_virq: handle -> int = "stub_eventchn_bind_dom_exc_virq"
+-external unbind: handle -> int -> unit = "stub_eventchn_unbind"
+-external pending: handle -> int = "stub_eventchn_pending"
+-external unmask: handle -> int -> unit = "stub_eventchn_unmask"
+-
+-let _ = Callback.register_exception "eventchn.error" (Error "register_callback")
+diff --git a/tools/ocaml/libs/eventchn/eventchn.mli b/tools/ocaml/libs/eventchn/eventchn.mli
+deleted file mode 100644
+--- a/tools/ocaml/libs/eventchn/eventchn.mli
++++ /dev/null
+@@ -1,31 +0,0 @@
+-(*
+- * Copyright (C) 2006-2007 XenSource Ltd.
+- * Copyright (C) 2008      Citrix Ltd.
+- * Author Vincent Hanquez <vincent.hanquez@eu.citrix.com>
+- *
+- * This program is free software; you can redistribute it and/or modify
+- * it under the terms of the GNU Lesser General Public License as published
+- * by the Free Software Foundation; version 2.1 only. with the special
+- * exception on linking described in file LICENSE.
+- *
+- * This program is distributed in the hope that it will be useful,
+- * but WITHOUT ANY WARRANTY; without even the implied warranty of
+- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+- * GNU Lesser General Public License for more details.
+- *)
+-
+-exception Error of string
+-
+-type handle
+-
+-external init : unit -> handle = "stub_eventchn_init"
+-external fd: handle -> Unix.file_descr = "stub_eventchn_fd"
+-
+-external notify : handle -> int -> unit = "stub_eventchn_notify"
+-external bind_interdomain : handle -> int -> int -> int
+-  = "stub_eventchn_bind_interdomain"
+-external bind_dom_exc_virq : handle -> int = "stub_eventchn_bind_dom_exc_virq"
+-external unbind : handle -> int -> unit = "stub_eventchn_unbind"
+-external pending : handle -> int = "stub_eventchn_pending"
+-external unmask : handle -> int -> unit
+-  = "stub_eventchn_unmask"
+diff --git a/tools/ocaml/libs/eventchn/eventchn_stubs.c b/tools/ocaml/libs/eventchn/eventchn_stubs.c
+deleted file mode 100644
+--- a/tools/ocaml/libs/eventchn/eventchn_stubs.c
++++ /dev/null
+@@ -1,143 +0,0 @@
+-/*
+- * Copyright (C) 2006-2007 XenSource Ltd.
+- * Copyright (C) 2008      Citrix Ltd.
+- * Author Vincent Hanquez <vincent.hanquez@eu.citrix.com>
+- *
+- * This program is free software; you can redistribute it and/or modify
+- * it under the terms of the GNU Lesser General Public License as published
+- * by the Free Software Foundation; version 2.1 only. with the special
+- * exception on linking described in file LICENSE.
+- *
+- * This program is distributed in the hope that it will be useful,
+- * but WITHOUT ANY WARRANTY; without even the implied warranty of
+- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+- * GNU Lesser General Public License for more details.
+- */
+-
+-#include <sys/types.h>
+-#include <sys/stat.h>
+-#include <fcntl.h>
+-#include <unistd.h>
+-#include <errno.h>
+-#include <stdint.h>
+-#include <sys/ioctl.h>
+-#include <xen/sysctl.h>
+-#include <xen/xen.h>
+-#include <xen/sys/evtchn.h>
+-#include <xenctrl.h>
+-
+-#define CAML_NAME_SPACE
+-#include <caml/mlvalues.h>
+-#include <caml/memory.h>
+-#include <caml/alloc.h>
+-#include <caml/custom.h>
+-#include <caml/callback.h>
+-#include <caml/fail.h>
+-
+-#define _H(__h) ((xc_interface *)(__h))
+-
+-CAMLprim value stub_eventchn_init(void)
+-{
+-	CAMLparam0();
+-	CAMLlocal1(result);
+-
+-	xc_interface *xce = xc_evtchn_open(NULL, XC_OPENFLAG_NON_REENTRANT);
+-	if (xce == NULL)
+-		caml_failwith("open failed");
+-
+-	result = (value)xce;
+-	CAMLreturn(result);
+-}
+-
+-CAMLprim value stub_eventchn_fd(value xce)
+-{
+-	CAMLparam1(xce);
+-	CAMLlocal1(result);
+-	int fd;
+-
+-	fd = xc_evtchn_fd(_H(xce));
+-	if (fd == -1)
+-		caml_failwith("evtchn fd failed");
+-
+-	result = Val_int(fd);
+-
+-	CAMLreturn(result);
+-}
+-
+-CAMLprim value stub_eventchn_notify(value xce, value port)
+-{
+-	CAMLparam2(xce, port);
+-	int rc;
+-
+-	rc = xc_evtchn_notify(_H(xce), Int_val(port));
+-	if (rc == -1)
+-		caml_failwith("evtchn notify failed");
+-
+-	CAMLreturn(Val_unit);
+-}
+-
+-CAMLprim value stub_eventchn_bind_interdomain(value xce, value domid,
+-                                              value remote_port)
+-{
+-	CAMLparam3(xce, domid, remote_port);
+-	CAMLlocal1(port);
+-	evtchn_port_or_error_t rc;
+-
+-	rc = xc_evtchn_bind_interdomain(_H(xce), Int_val(domid), Int_val(remote_port));
+-	if (rc == -1)
+-		caml_failwith("evtchn bind_interdomain failed");
+-	port = Val_int(rc);
+-
+-	CAMLreturn(port);
+-}
+-
+-CAMLprim value stub_eventchn_bind_dom_exc_virq(value xce)
+-{
+-	CAMLparam1(xce);
+-	CAMLlocal1(port);
+-	evtchn_port_or_error_t rc;
+-
+-	rc = xc_evtchn_bind_virq(_H(xce), VIRQ_DOM_EXC);
+-	if (rc == -1)
+-		caml_failwith("evtchn bind_dom_exc_virq failed");
+-	port = Val_int(rc);
+-
+-	CAMLreturn(port);
+-}
+-
+-CAMLprim value stub_eventchn_unbind(value xce, value port)
+-{
+-	CAMLparam2(xce, port);
+-	int rc;
+-
+-	rc = xc_evtchn_unbind(_H(xce), Int_val(port));
+-	if (rc == -1)
+-		caml_failwith("evtchn unbind failed");
+-
+-	CAMLreturn(Val_unit);
+-}
+-
+-CAMLprim value stub_eventchn_pending(value xce)
+-{
+-	CAMLparam1(xce);
+-	CAMLlocal1(result);
+-	evtchn_port_or_error_t port;
+-
+-	port = xc_evtchn_pending(_H(xce));
+-	if (port == -1)
+-		caml_failwith("evtchn pending failed");
+-	result = Val_int(port);
+-
+-	CAMLreturn(result);
+-}
+-
+-CAMLprim value stub_eventchn_unmask(value xce, value _port)
+-{
+-	CAMLparam2(xce, _port);
+-	evtchn_port_t port;
+-
+-	port = Int_val(_port);
+-	if (xc_evtchn_unmask(_H(xce), port))
+-		caml_failwith("evtchn unmask failed");
+-	CAMLreturn(Val_unit);
+-}
+diff --git a/tools/ocaml/libs/eventchn/xeneventchn.ml b/tools/ocaml/libs/eventchn/xeneventchn.ml
+new file mode 100644
+--- /dev/null
++++ b/tools/ocaml/libs/eventchn/xeneventchn.ml
+@@ -0,0 +1,30 @@
++(*
++ * Copyright (C) 2006-2007 XenSource Ltd.
++ * Copyright (C) 2008      Citrix Ltd.
++ * Author Vincent Hanquez <vincent.hanquez@eu.citrix.com>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU Lesser General Public License as published
++ * by the Free Software Foundation; version 2.1 only. with the special
++ * exception on linking described in file LICENSE.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU Lesser General Public License for more details.
++ *)
++
++exception Error of string
++
++type handle
++
++external init: unit -> handle = "stub_eventchn_init"
++external fd: handle -> Unix.file_descr = "stub_eventchn_fd"
++external notify: handle -> int -> unit = "stub_eventchn_notify"
++external bind_interdomain: handle -> int -> int -> int = "stub_eventchn_bind_interdomain"
++external bind_dom_exc_virq: handle -> int = "stub_eventchn_bind_dom_exc_virq"
++external unbind: handle -> int -> unit = "stub_eventchn_unbind"
++external pending: handle -> int = "stub_eventchn_pending"
++external unmask: handle -> int -> unit = "stub_eventchn_unmask"
++
++let _ = Callback.register_exception "eventchn.error" (Error "register_callback")
+diff --git a/tools/ocaml/libs/eventchn/xeneventchn.mli b/tools/ocaml/libs/eventchn/xeneventchn.mli
+new file mode 100644
+--- /dev/null
++++ b/tools/ocaml/libs/eventchn/xeneventchn.mli
+@@ -0,0 +1,31 @@
++(*
++ * Copyright (C) 2006-2007 XenSource Ltd.
++ * Copyright (C) 2008      Citrix Ltd.
++ * Author Vincent Hanquez <vincent.hanquez@eu.citrix.com>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU Lesser General Public License as published
++ * by the Free Software Foundation; version 2.1 only. with the special
++ * exception on linking described in file LICENSE.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU Lesser General Public License for more details.
++ *)
++
++exception Error of string
++
++type handle
++
++external init : unit -> handle = "stub_eventchn_init"
++external fd: handle -> Unix.file_descr = "stub_eventchn_fd"
++
++external notify : handle -> int -> unit = "stub_eventchn_notify"
++external bind_interdomain : handle -> int -> int -> int
++  = "stub_eventchn_bind_interdomain"
++external bind_dom_exc_virq : handle -> int = "stub_eventchn_bind_dom_exc_virq"
++external unbind : handle -> int -> unit = "stub_eventchn_unbind"
++external pending : handle -> int = "stub_eventchn_pending"
++external unmask : handle -> int -> unit
++  = "stub_eventchn_unmask"
+diff --git a/tools/ocaml/libs/eventchn/xeneventchn_stubs.c b/tools/ocaml/libs/eventchn/xeneventchn_stubs.c
+new file mode 100644
+--- /dev/null
++++ b/tools/ocaml/libs/eventchn/xeneventchn_stubs.c
+@@ -0,0 +1,143 @@
++/*
++ * Copyright (C) 2006-2007 XenSource Ltd.
++ * Copyright (C) 2008      Citrix Ltd.
++ * Author Vincent Hanquez <vincent.hanquez@eu.citrix.com>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU Lesser General Public License as published
++ * by the Free Software Foundation; version 2.1 only. with the special
++ * exception on linking described in file LICENSE.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU Lesser General Public License for more details.
++ */
++
++#include <sys/types.h>
++#include <sys/stat.h>
++#include <fcntl.h>
++#include <unistd.h>
++#include <errno.h>
++#include <stdint.h>
++#include <sys/ioctl.h>
++#include <xen/sysctl.h>
++#include <xen/xen.h>
++#include <xen/sys/evtchn.h>
++#include <xenctrl.h>
++
++#define CAML_NAME_SPACE
++#include <caml/mlvalues.h>
++#include <caml/memory.h>
++#include <caml/alloc.h>
++#include <caml/custom.h>
++#include <caml/callback.h>
++#include <caml/fail.h>
++
++#define _H(__h) ((xc_interface *)(__h))
++
++CAMLprim value stub_eventchn_init(void)
++{
++	CAMLparam0();
++	CAMLlocal1(result);
++
++	xc_interface *xce = xc_evtchn_open(NULL, XC_OPENFLAG_NON_REENTRANT);
++	if (xce == NULL)
++		caml_failwith("open failed");
++
++	result = (value)xce;
++	CAMLreturn(result);
++}
++
++CAMLprim value stub_eventchn_fd(value xce)
++{
++	CAMLparam1(xce);
++	CAMLlocal1(result);
++	int fd;
++
++	fd = xc_evtchn_fd(_H(xce));
++	if (fd == -1)
++		caml_failwith("evtchn fd failed");
++
++	result = Val_int(fd);
++
++	CAMLreturn(result);
++}
++
++CAMLprim value stub_eventchn_notify(value xce, value port)
++{
++	CAMLparam2(xce, port);
++	int rc;
++
++	rc = xc_evtchn_notify(_H(xce), Int_val(port));
++	if (rc == -1)
++		caml_failwith("evtchn notify failed");
++
++	CAMLreturn(Val_unit);
++}
++
++CAMLprim value stub_eventchn_bind_interdomain(value xce, value domid,
++                                              value remote_port)
++{
++	CAMLparam3(xce, domid, remote_port);
++	CAMLlocal1(port);
++	evtchn_port_or_error_t rc;
++
++	rc = xc_evtchn_bind_interdomain(_H(xce), Int_val(domid), Int_val(remote_port));
++	if (rc == -1)
++		caml_failwith("evtchn bind_interdomain failed");
++	port = Val_int(rc);
++
++	CAMLreturn(port);
++}
++
++CAMLprim value stub_eventchn_bind_dom_exc_virq(value xce)
++{
++	CAMLparam1(xce);
++	CAMLlocal1(port);
++	evtchn_port_or_error_t rc;
++
++	rc = xc_evtchn_bind_virq(_H(xce), VIRQ_DOM_EXC);
++	if (rc == -1)
++		caml_failwith("evtchn bind_dom_exc_virq failed");
++	port = Val_int(rc);
++
++	CAMLreturn(port);
++}
++
++CAMLprim value stub_eventchn_unbind(value xce, value port)
++{
++	CAMLparam2(xce, port);
++	int rc;
++
++	rc = xc_evtchn_unbind(_H(xce), Int_val(port));
++	if (rc == -1)
++		caml_failwith("evtchn unbind failed");
++
++	CAMLreturn(Val_unit);
++}
++
++CAMLprim value stub_eventchn_pending(value xce)
++{
++	CAMLparam1(xce);
++	CAMLlocal1(result);
++	evtchn_port_or_error_t port;
++
++	port = xc_evtchn_pending(_H(xce));
++	if (port == -1)
++		caml_failwith("evtchn pending failed");
++	result = Val_int(port);
++
++	CAMLreturn(result);
++}
++
++CAMLprim value stub_eventchn_unmask(value xce, value _port)
++{
++	CAMLparam2(xce, _port);
++	evtchn_port_t port;
++
++	port = Int_val(_port);
++	if (xc_evtchn_unmask(_H(xce), port))
++		caml_failwith("evtchn unmask failed");
++	CAMLreturn(Val_unit);
++}
+diff --git a/tools/ocaml/libs/mmap/META.in b/tools/ocaml/libs/mmap/META.in
+--- a/tools/ocaml/libs/mmap/META.in
++++ b/tools/ocaml/libs/mmap/META.in
+@@ -1,4 +1,4 @@
+ version = "@VERSION@"
+ description = "Mmap interface extension"
+-archive(byte) = "mmap.cma"
+-archive(native) = "mmap.cmxa"
++archive(byte) = "xenmmap.cma"
++archive(native) = "xenmmap.cmxa"
+diff --git a/tools/ocaml/libs/mmap/Makefile b/tools/ocaml/libs/mmap/Makefile
+--- a/tools/ocaml/libs/mmap/Makefile
++++ b/tools/ocaml/libs/mmap/Makefile
+@@ -2,9 +2,9 @@ TOPLEVEL=$(CURDIR)/../..
+ XEN_ROOT=$(TOPLEVEL)/../..
+ include $(TOPLEVEL)/common.make
+ 
+-OBJS = mmap
++OBJS = xenmmap
+ INTF = $(foreach obj, $(OBJS),$(obj).cmi)
+-LIBS = mmap.cma mmap.cmxa
++LIBS = xenmmap.cma xenmmap.cmxa
+ 
+ all: $(INTF) $(LIBS) $(PROGRAMS)
+ 
+@@ -12,19 +12,19 @@ bins: $(PROGRAMS)
+ 
+ libs: $(LIBS)
+ 
+-mmap_OBJS = $(OBJS)
+-mmap_C_OBJS = mmap_stubs
+-OCAML_LIBRARY = mmap
++xenmmap_OBJS = $(OBJS)
++xenmmap_C_OBJS = xenmmap_stubs
++OCAML_LIBRARY = xenmmap
+ 
+ .PHONY: install
+ install: $(LIBS) META
+ 	mkdir -p $(OCAMLDESTDIR)
+-	ocamlfind remove -destdir $(OCAMLDESTDIR) mmap
+-	ocamlfind install -destdir $(OCAMLDESTDIR) -ldconf ignore mmap META $(INTF) $(LIBS) *.a *.so *.cmx
++	ocamlfind remove -destdir $(OCAMLDESTDIR) xenmmap
++	ocamlfind install -destdir $(OCAMLDESTDIR) -ldconf ignore xenmmap META $(INTF) $(LIBS) *.a *.so *.cmx
+ 
+ .PHONY: uninstall
+ uninstall:
+-	ocamlfind remove -destdir $(OCAMLDESTDIR) mmap
++	ocamlfind remove -destdir $(OCAMLDESTDIR) xenmmap
+ 
+ include $(TOPLEVEL)/Makefile.rules
+ 
+diff --git a/tools/ocaml/libs/mmap/mmap.ml b/tools/ocaml/libs/mmap/mmap.ml
+deleted file mode 100644
+--- a/tools/ocaml/libs/mmap/mmap.ml
++++ /dev/null
+@@ -1,31 +0,0 @@
+-(*
+- * Copyright (C) 2006-2007 XenSource Ltd.
+- * Copyright (C) 2008      Citrix Ltd.
+- * Author Vincent Hanquez <vincent.hanquez@eu.citrix.com>
+- *
+- * This program is free software; you can redistribute it and/or modify
+- * it under the terms of the GNU Lesser General Public License as published
+- * by the Free Software Foundation; version 2.1 only. with the special
+- * exception on linking described in file LICENSE.
+- *
+- * This program is distributed in the hope that it will be useful,
+- * but WITHOUT ANY WARRANTY; without even the implied warranty of
+- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+- * GNU Lesser General Public License for more details.
+- *)
+-
+-type mmap_interface
+-
+-type mmap_prot_flag = RDONLY | WRONLY | RDWR
+-type mmap_map_flag = SHARED | PRIVATE
+-
+-(* mmap: fd -> prot_flag -> map_flag -> length -> offset -> interface *)
+-external mmap: Unix.file_descr -> mmap_prot_flag -> mmap_map_flag
+-		-> int -> int -> mmap_interface = "stub_mmap_init"
+-external unmap: mmap_interface -> unit = "stub_mmap_final"
+-(* read: interface -> start -> length -> data *)
+-external read: mmap_interface -> int -> int -> string = "stub_mmap_read"
+-(* write: interface -> data -> start -> length -> unit *)
+-external write: mmap_interface -> string -> int -> int -> unit = "stub_mmap_write"
+-(* getpagesize: unit -> size of page *)
+-external getpagesize: unit -> int = "stub_mmap_getpagesize"
+diff --git a/tools/ocaml/libs/mmap/mmap.mli b/tools/ocaml/libs/mmap/mmap.mli
+deleted file mode 100644
+--- a/tools/ocaml/libs/mmap/mmap.mli
++++ /dev/null
+@@ -1,28 +0,0 @@
+-(*
+- * Copyright (C) 2006-2007 XenSource Ltd.
+- * Copyright (C) 2008      Citrix Ltd.
+- * Author Vincent Hanquez <vincent.hanquez@eu.citrix.com>
+- *
+- * This program is free software; you can redistribute it and/or modify
+- * it under the terms of the GNU Lesser General Public License as published
+- * by the Free Software Foundation; version 2.1 only. with the special
+- * exception on linking described in file LICENSE.
+- *
+- * This program is distributed in the hope that it will be useful,
+- * but WITHOUT ANY WARRANTY; without even the implied warranty of
+- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+- * GNU Lesser General Public License for more details.
+- *)
+-
+-type mmap_interface
+-type mmap_prot_flag = RDONLY | WRONLY | RDWR
+-type mmap_map_flag = SHARED | PRIVATE
+-
+-external mmap : Unix.file_descr -> mmap_prot_flag -> mmap_map_flag -> int -> int
+-             -> mmap_interface = "stub_mmap_init"
+-external unmap : mmap_interface -> unit = "stub_mmap_final"
+-external read : mmap_interface -> int -> int -> string = "stub_mmap_read"
+-external write : mmap_interface -> string -> int -> int -> unit
+-               = "stub_mmap_write"
+-
+-external getpagesize : unit -> int = "stub_mmap_getpagesize"
+diff --git a/tools/ocaml/libs/mmap/mmap_stubs.c b/tools/ocaml/libs/mmap/mmap_stubs.c
+deleted file mode 100644
+--- a/tools/ocaml/libs/mmap/mmap_stubs.c
++++ /dev/null
+@@ -1,136 +0,0 @@
+-/*
+- * Copyright (C) 2006-2007 XenSource Ltd.
+- * Copyright (C) 2008      Citrix Ltd.
+- * Author Vincent Hanquez <vincent.hanquez@eu.citrix.com>
+- *
+- * This program is free software; you can redistribute it and/or modify
+- * it under the terms of the GNU Lesser General Public License as published
+- * by the Free Software Foundation; version 2.1 only. with the special
+- * exception on linking described in file LICENSE.
+- *
+- * This program is distributed in the hope that it will be useful,
+- * but WITHOUT ANY WARRANTY; without even the implied warranty of
+- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+- * GNU Lesser General Public License for more details.
+- */
+-
+-#include <unistd.h>
+-#include <stdlib.h>
+-#include <sys/mman.h>
+-#include <string.h>
+-#include <errno.h>
+-#include "mmap_stubs.h"
+-
+-#include <caml/mlvalues.h>
+-#include <caml/memory.h>
+-#include <caml/alloc.h>
+-#include <caml/custom.h>
+-#include <caml/fail.h>
+-#include <caml/callback.h>
+-
+-#define GET_C_STRUCT(a) ((struct mmap_interface *) a)
+-
+-static int mmap_interface_init(struct mmap_interface *intf,
+-                               int fd, int pflag, int mflag,
+-                               int len, int offset)
+-{
+-	intf->len = len;
+-	intf->addr = mmap(NULL, len, pflag, mflag, fd, offset);
+-	return (intf->addr == MAP_FAILED) ? errno : 0;
+-}
+-
+-CAMLprim value stub_mmap_init(value fd, value pflag, value mflag,
+-                              value len, value offset)
+-{
+-	CAMLparam5(fd, pflag, mflag, len, offset);
+-	CAMLlocal1(result);
+-	int c_pflag, c_mflag;
+-
+-	switch (Int_val(pflag)) {
+-	case 0: c_pflag = PROT_READ; break;
+-	case 1: c_pflag = PROT_WRITE; break;
+-	case 2: c_pflag = PROT_READ|PROT_WRITE; break;
+-	default: caml_invalid_argument("protectiontype");
+-	}
+-
+-	switch (Int_val(mflag)) {
+-	case 0: c_mflag = MAP_SHARED; break;
+-	case 1: c_mflag = MAP_PRIVATE; break;
+-	default: caml_invalid_argument("maptype");
+-	}
+-
+-	result = caml_alloc(sizeof(struct mmap_interface), Abstract_tag);
+-
+-	if (mmap_interface_init(GET_C_STRUCT(result), Int_val(fd),
+-	                        c_pflag, c_mflag,
+-	                        Int_val(len), Int_val(offset)))
+-		caml_failwith("mmap");
+-	CAMLreturn(result);
+-}
+-
+-CAMLprim value stub_mmap_final(value interface)
+-{
+-	CAMLparam1(interface);
+-	struct mmap_interface *intf;
+-
+-	intf = GET_C_STRUCT(interface);
+-	if (intf->addr != MAP_FAILED)
+-		munmap(intf->addr, intf->len);
+-	intf->addr = MAP_FAILED;
+-
+-	CAMLreturn(Val_unit);
+-}
+-
+-CAMLprim value stub_mmap_read(value interface, value start, value len)
+-{
+-	CAMLparam3(interface, start, len);
+-	CAMLlocal1(data);
+-	struct mmap_interface *intf;
+-	int c_start;
+-	int c_len;
+-
+-	c_start = Int_val(start);
+-	c_len = Int_val(len);
+-	intf = GET_C_STRUCT(interface);
+-
+-	if (c_start > intf->len)
+-		caml_invalid_argument("start invalid");
+-	if (c_start + c_len > intf->len)
+-		caml_invalid_argument("len invalid");
+-
+-	data = caml_alloc_string(c_len);
+-	memcpy((char *) data, intf->addr + c_start, c_len);
+-
+-	CAMLreturn(data);
+-}
+-
+-CAMLprim value stub_mmap_write(value interface, value data,
+-                               value start, value len)
+-{
+-	CAMLparam4(interface, data, start, len);
+-	struct mmap_interface *intf;
+-	int c_start;
+-	int c_len;
+-
+-	c_start = Int_val(start);
+-	c_len = Int_val(len);
+-	intf = GET_C_STRUCT(interface);
+-
+-	if (c_start > intf->len)
+-		caml_invalid_argument("start invalid");
+-	if (c_start + c_len > intf->len)
+-		caml_invalid_argument("len invalid");
+-
+-	memcpy(intf->addr + c_start, (char *) data, c_len);
+-
+-	CAMLreturn(Val_unit);
+-}
+-
+-CAMLprim value stub_mmap_getpagesize(value unit)
+-{
+-	CAMLparam1(unit);
+-	CAMLlocal1(data);
+-
+-	data = Val_int(getpagesize());
+-	CAMLreturn(data);
+-}
+diff --git a/tools/ocaml/libs/mmap/xenmmap.ml b/tools/ocaml/libs/mmap/xenmmap.ml
+new file mode 100644
+--- /dev/null
++++ b/tools/ocaml/libs/mmap/xenmmap.ml
+@@ -0,0 +1,31 @@
++(*
++ * Copyright (C) 2006-2007 XenSource Ltd.
++ * Copyright (C) 2008      Citrix Ltd.
++ * Author Vincent Hanquez <vincent.hanquez@eu.citrix.com>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU Lesser General Public License as published
++ * by the Free Software Foundation; version 2.1 only. with the special
++ * exception on linking described in file LICENSE.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU Lesser General Public License for more details.
++ *)
++
++type mmap_interface
++
++type mmap_prot_flag = RDONLY | WRONLY | RDWR
++type mmap_map_flag = SHARED | PRIVATE
++
++(* mmap: fd -> prot_flag -> map_flag -> length -> offset -> interface *)
++external mmap: Unix.file_descr -> mmap_prot_flag -> mmap_map_flag
++		-> int -> int -> mmap_interface = "stub_mmap_init"
++external unmap: mmap_interface -> unit = "stub_mmap_final"
++(* read: interface -> start -> length -> data *)
++external read: mmap_interface -> int -> int -> string = "stub_mmap_read"
++(* write: interface -> data -> start -> length -> unit *)
++external write: mmap_interface -> string -> int -> int -> unit = "stub_mmap_write"
++(* getpagesize: unit -> size of page *)
++external getpagesize: unit -> int = "stub_mmap_getpagesize"
+diff --git a/tools/ocaml/libs/mmap/xenmmap.mli b/tools/ocaml/libs/mmap/xenmmap.mli
+new file mode 100644
+--- /dev/null
++++ b/tools/ocaml/libs/mmap/xenmmap.mli
+@@ -0,0 +1,28 @@
++(*
++ * Copyright (C) 2006-2007 XenSource Ltd.
++ * Copyright (C) 2008      Citrix Ltd.
++ * Author Vincent Hanquez <vincent.hanquez@eu.citrix.com>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU Lesser General Public License as published
++ * by the Free Software Foundation; version 2.1 only. with the special
++ * exception on linking described in file LICENSE.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU Lesser General Public License for more details.
++ *)
++
++type mmap_interface
++type mmap_prot_flag = RDONLY | WRONLY | RDWR
++type mmap_map_flag = SHARED | PRIVATE
++
++external mmap : Unix.file_descr -> mmap_prot_flag -> mmap_map_flag -> int -> int
++             -> mmap_interface = "stub_mmap_init"
++external unmap : mmap_interface -> unit = "stub_mmap_final"
++external read : mmap_interface -> int -> int -> string = "stub_mmap_read"
++external write : mmap_interface -> string -> int -> int -> unit
++               = "stub_mmap_write"
++
++external getpagesize : unit -> int = "stub_mmap_getpagesize"
+diff --git a/tools/ocaml/libs/mmap/xenmmap_stubs.c b/tools/ocaml/libs/mmap/xenmmap_stubs.c
+new file mode 100644
+--- /dev/null
++++ b/tools/ocaml/libs/mmap/xenmmap_stubs.c
+@@ -0,0 +1,136 @@
++/*
++ * Copyright (C) 2006-2007 XenSource Ltd.
++ * Copyright (C) 2008      Citrix Ltd.
++ * Author Vincent Hanquez <vincent.hanquez@eu.citrix.com>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU Lesser General Public License as published
++ * by the Free Software Foundation; version 2.1 only. with the special
++ * exception on linking described in file LICENSE.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU Lesser General Public License for more details.
++ */
++
++#include <unistd.h>
++#include <stdlib.h>
++#include <sys/mman.h>
++#include <string.h>
++#include <errno.h>
++#include "mmap_stubs.h"
++
++#include <caml/mlvalues.h>
++#include <caml/memory.h>
++#include <caml/alloc.h>
++#include <caml/custom.h>
++#include <caml/fail.h>
++#include <caml/callback.h>
++
++#define GET_C_STRUCT(a) ((struct mmap_interface *) a)
++
++static int mmap_interface_init(struct mmap_interface *intf,
++                               int fd, int pflag, int mflag,
++                               int len, int offset)
++{
++	intf->len = len;
++	intf->addr = mmap(NULL, len, pflag, mflag, fd, offset);
++	return (intf->addr == MAP_FAILED) ? errno : 0;
++}
++
++CAMLprim value stub_mmap_init(value fd, value pflag, value mflag,
++                              value len, value offset)
++{
++	CAMLparam5(fd, pflag, mflag, len, offset);
++	CAMLlocal1(result);
++	int c_pflag, c_mflag;
++
++	switch (Int_val(pflag)) {
++	case 0: c_pflag = PROT_READ; break;
++	case 1: c_pflag = PROT_WRITE; break;
++	case 2: c_pflag = PROT_READ|PROT_WRITE; break;
++	default: caml_invalid_argument("protectiontype");
++	}
++
++	switch (Int_val(mflag)) {
++	case 0: c_mflag = MAP_SHARED; break;
++	case 1: c_mflag = MAP_PRIVATE; break;
++	default: caml_invalid_argument("maptype");
++	}
++
++	result = caml_alloc(sizeof(struct mmap_interface), Abstract_tag);
++
++	if (mmap_interface_init(GET_C_STRUCT(result), Int_val(fd),
++	                        c_pflag, c_mflag,
++	                        Int_val(len), Int_val(offset)))
++		caml_failwith("mmap");
++	CAMLreturn(result);
++}
++
++CAMLprim value stub_mmap_final(value interface)
++{
++	CAMLparam1(interface);
++	struct mmap_interface *intf;
++
++	intf = GET_C_STRUCT(interface);
++	if (intf->addr != MAP_FAILED)
++		munmap(intf->addr, intf->len);
++	intf->addr = MAP_FAILED;
++
++	CAMLreturn(Val_unit);
++}
++
++CAMLprim value stub_mmap_read(value interface, value start, value len)
++{
++	CAMLparam3(interface, start, len);
++	CAMLlocal1(data);
++	struct mmap_interface *intf;
++	int c_start;
++	int c_len;
++
++	c_start = Int_val(start);
++	c_len = Int_val(len);
++	intf = GET_C_STRUCT(interface);
++
++	if (c_start > intf->len)
++		caml_invalid_argument("start invalid");
++	if (c_start + c_len > intf->len)
++		caml_invalid_argument("len invalid");
++
++	data = caml_alloc_string(c_len);
++	memcpy((char *) data, intf->addr + c_start, c_len);
++
++	CAMLreturn(data);
++}
++
++CAMLprim value stub_mmap_write(value interface, value data,
++                               value start, value len)
++{
++	CAMLparam4(interface, data, start, len);
++	struct mmap_interface *intf;
++	int c_start;
++	int c_len;
++
++	c_start = Int_val(start);
++	c_len = Int_val(len);
++	intf = GET_C_STRUCT(interface);
++
++	if (c_start > intf->len)
++		caml_invalid_argument("start invalid");
++	if (c_start + c_len > intf->len)
++		caml_invalid_argument("len invalid");
++
++	memcpy(intf->addr + c_start, (char *) data, c_len);
++
++	CAMLreturn(Val_unit);
++}
++
++CAMLprim value stub_mmap_getpagesize(value unit)
++{
++	CAMLparam1(unit);
++	CAMLlocal1(data);
++
++	data = Val_int(getpagesize());
++	CAMLreturn(data);
++}
+diff --git a/tools/ocaml/libs/xb/META.in b/tools/ocaml/libs/xb/META.in
+--- a/tools/ocaml/libs/xb/META.in
++++ b/tools/ocaml/libs/xb/META.in
+@@ -1,5 +1,5 @@
+ version = "@VERSION@"
+ description = "XenBus Interface"
+-requires = "unix,mmap"
+-archive(byte) = "xb.cma"
+-archive(native) = "xb.cmxa"
++requires = "unix,xenmmap"
++archive(byte) = "xenbus.cma"
++archive(native) = "xenbus.cmxa"
+diff --git a/tools/ocaml/libs/xb/Makefile b/tools/ocaml/libs/xb/Makefile
+--- a/tools/ocaml/libs/xb/Makefile
++++ b/tools/ocaml/libs/xb/Makefile
+@@ -4,6 +4,7 @@ include $(TOPLEVEL)/common.make
+ 
+ CFLAGS += -I../mmap
+ OCAMLINCLUDE += -I ../mmap
++OCAMLOPTFLAGS += -for-pack Xenbus
+ 
+ .NOTPARALLEL:
+ # Ocaml is such a PITA!
+@@ -13,7 +14,7 @@ PREOBJS = op partial packet xs_ring
+ PRELIBS = $(foreach obj, $(PREOBJS),$(obj).cmo) $(foreach obj,$(PREOJBS),$(obj).cmx)
+ OBJS = op partial packet xs_ring xb
+ INTF = op.cmi packet.cmi xb.cmi
+-LIBS = xb.cma xb.cmxa
++LIBS = xenbus.cma xenbus.cmxa
+ 
+ ALL_OCAML_OBJS = $(OBJS) $(PREOJBS)
+ 
+@@ -23,22 +24,30 @@ bins: $(PROGRAMS)
+ 
+ libs: $(LIBS)
+ 
+-xb_OBJS = $(OBJS)
+-xb_C_OBJS = xs_ring_stubs xb_stubs
+-OCAML_LIBRARY = xb
++xenbus_OBJS = xenbus
++xenbus_C_OBJS = xs_ring_stubs xenbus_stubs
++OCAML_LIBRARY = xenbus
++
++xenbus.cmx : $(foreach obj, $(OBJS), $(obj).cmx)
++	$(E) " CMX       $@"
++	$(OCAMLOPT) -pack -o $@ $^
++
++xenbus.cmo : $(foreach obj, $(OBJS), $(obj).cmo)
++	$(E) " CMO       $@"
++	$(OCAMLC) -pack -o $@ $^
+ 
+ %.mli: %.ml
+ 	$(E) " MLI       $@"
+-	$(Q)$(OCAMLC) -i $< $o
++	$(Q)$(OCAMLC) $(OCAMLINCLUDE) -i $< $o
+ 
+ .PHONY: install
+ install: $(LIBS) META
+ 	mkdir -p $(OCAMLDESTDIR)
+-	ocamlfind remove -destdir $(OCAMLDESTDIR) xb
+-	ocamlfind install -destdir $(OCAMLDESTDIR) -ldconf ignore xb META $(INTF) $(LIBS) *.a *.so *.cmx
++	ocamlfind remove -destdir $(OCAMLDESTDIR) xenbus
++	ocamlfind install -destdir $(OCAMLDESTDIR) -ldconf ignore xenbus META $(LIBS) xenbus.cmi xenbus.cmx *.a *.so 
+ 
+ .PHONY: uninstall
+ uninstall:
+-	ocamlfind remove -destdir $(OCAMLDESTDIR) xb
++	ocamlfind remove -destdir $(OCAMLDESTDIR) xenbus
+ 
+ include $(TOPLEVEL)/Makefile.rules
+diff --git a/tools/ocaml/libs/xb/xb.ml b/tools/ocaml/libs/xb/xb.ml
+--- a/tools/ocaml/libs/xb/xb.ml
++++ b/tools/ocaml/libs/xb/xb.ml
+@@ -24,7 +24,7 @@ exception Invalid
+ 
+ type backend_mmap =
+ {
+-	mmap: Mmap.mmap_interface;     (* mmaped interface = xs_ring *)
++	mmap: Xenmmap.mmap_interface;     (* mmaped interface = xs_ring *)
+ 	eventchn_notify: unit -> unit; (* function to notify through eventchn *)
+ 	mutable work_again: bool;
+ }
+@@ -34,7 +34,7 @@ type backend_fd =
+ 	fd: Unix.file_descr;
+ }
+ 
+-type backend = Fd of backend_fd | Mmap of backend_mmap
++type backend = Fd of backend_fd | Xenmmap of backend_mmap
+ 
+ type partial_buf = HaveHdr of Partial.pkt | NoHdr of int * string
+ 
+@@ -68,7 +68,7 @@ let read_mmap back con s len =
+ let read con s len =
+ 	match con.backend with
+ 	| Fd backfd     -> read_fd backfd con s len
+-	| Mmap backmmap -> read_mmap backmmap con s len
++	| Xenmmap backmmap -> read_mmap backmmap con s len
+ 
+ let write_fd back con s len =
+ 	Unix.write back.fd s 0 len
+@@ -82,7 +82,7 @@ let write_mmap back con s len =
+ let write con s len =
+ 	match con.backend with
+ 	| Fd backfd     -> write_fd backfd con s len
+-	| Mmap backmmap -> write_mmap backmmap con s len
++	| Xenmmap backmmap -> write_mmap backmmap con s len
+ 
+ let output con =
+ 	(* get the output string from a string_of(packet) or partial_out *)
+@@ -145,7 +145,7 @@ let newcon backend = {
+ let open_fd fd = newcon (Fd { fd = fd; })
+ 
+ let open_mmap mmap notifyfct =
+-	newcon (Mmap {
++	newcon (Xenmmap {
+ 		mmap = mmap;
+ 		eventchn_notify = notifyfct;
+ 		work_again = false; })
+@@ -153,12 +153,12 @@ let open_mmap mmap notifyfct =
+ let close con =
+ 	match con.backend with
+ 	| Fd backend   -> Unix.close backend.fd
+-	| Mmap backend -> Mmap.unmap backend.mmap
++	| Xenmmap backend -> Xenmmap.unmap backend.mmap
+ 
+ let is_fd con =
+ 	match con.backend with
+ 	| Fd _   -> true
+-	| Mmap _ -> false
++	| Xenmmap _ -> false
+ 
+ let is_mmap con = not (is_fd con)
+ 
+@@ -176,14 +176,14 @@ let get_in_packet con = Queue.pop con.pk
+ let has_more_input con =
+ 	match con.backend with
+ 	| Fd _         -> false
+-	| Mmap backend -> backend.work_again
++	| Xenmmap backend -> backend.work_again
+ 
+ let is_selectable con =
+ 	match con.backend with
+ 	| Fd _   -> true
+-	| Mmap _ -> false
++	| Xenmmap _ -> false
+ 
+ let get_fd con =
+ 	match con.backend with
+ 	| Fd backend -> backend.fd
+-	| Mmap _     -> raise (Failure "get_fd")
++	| Xenmmap _     -> raise (Failure "get_fd")
+diff --git a/tools/ocaml/libs/xb/xb.mli b/tools/ocaml/libs/xb/xb.mli
+--- a/tools/ocaml/libs/xb/xb.mli
++++ b/tools/ocaml/libs/xb/xb.mli
+@@ -1,83 +1,103 @@
+-module Op:
+-sig
+-	type operation = Op.operation =
+-		| Debug
+-		| Directory
+-		| Read
+-		| Getperms
+-		| Watch
+-		| Unwatch
+-		| Transaction_start
+-		| Transaction_end
+-		| Introduce
+-		| Release
+-		| Getdomainpath
+-		| Write
+-		| Mkdir
+-		| Rm
+-		| Setperms
+-		| Watchevent
+-		| Error
+-		| Isintroduced
+-		| Resume
+-		| Set_target
+-		| Restrict
+-	val to_string : operation -> string
+-end
+-
+-module Packet:
+-sig
+-	type t
+-
+-	exception Error of string
+-	exception DataError of string
+-
+-	val create : int -> int -> Op.operation -> string -> t
+-	val unpack : t -> int * int * Op.operation * string
+-
+-	val get_tid : t -> int
+-	val get_ty : t -> Op.operation
+-	val get_data : t -> string
+-	val get_rid: t -> int
+-end
+-
++module Op :
++  sig
++    type operation =
++      Op.operation =
++        Debug
++      | Directory
++      | Read
++      | Getperms
++      | Watch
++      | Unwatch
++      | Transaction_start
++      | Transaction_end
++      | Introduce
++      | Release
++      | Getdomainpath
++      | Write
++      | Mkdir
++      | Rm
++      | Setperms
++      | Watchevent
++      | Error
++      | Isintroduced
++      | Resume
++      | Set_target
++      | Restrict
++    val operation_c_mapping : operation array
++    val size : int
++    val offset_pq : int
++    val operation_c_mapping_pq : 'a array
++    val size_pq : int
++    val array_search : 'a -> 'a array -> int
++    val of_cval : int -> operation
++    val to_cval : operation -> int
++    val to_string : operation -> string
++  end
++module Packet :
++  sig
++    type t =
++      Packet.t = {
++      tid : int;
++      rid : int;
++      ty : Op.operation;
++      data : string;
++    }
++    exception Error of string
++    exception DataError of string
++    external string_of_header : int -> int -> int -> int -> string
++      = "stub_string_of_header"
++    val create : int -> int -> Op.operation -> string -> t
++    val of_partialpkt : Partial.pkt -> t
++    val to_string : t -> string
++    val unpack : t -> int * int * Op.operation * string
++    val get_tid : t -> int
++    val get_ty : t -> Op.operation
++    val get_data : t -> string
++    val get_rid : t -> int
++  end
+ exception End_of_file
+ exception Eagain
+ exception Noent
+ exception Invalid
+-
+-type t
+-
+-(** queue a packet into the output queue for later sending *)
++type backend_mmap = {
++  mmap : Xenmmap.mmap_interface;
++  eventchn_notify : unit -> unit;
++  mutable work_again : bool;
++}
++type backend_fd = { fd : Unix.file_descr; }
++type backend = Fd of backend_fd | Xenmmap of backend_mmap
++type partial_buf = HaveHdr of Partial.pkt | NoHdr of int * string
++type t = {
++  backend : backend;
++  pkt_in : Packet.t Queue.t;
++  pkt_out : Packet.t Queue.t;
++  mutable partial_in : partial_buf;
++  mutable partial_out : string;
++}
++val init_partial_in : unit -> partial_buf
+ val queue : t -> Packet.t -> unit
+-
+-(** process the output queue, return if a packet has been totally sent *)
++val read_fd : backend_fd -> 'a -> string -> int -> int
++val read_mmap : backend_mmap -> 'a -> string -> int -> int
++val read : t -> string -> int -> int
++val write_fd : backend_fd -> 'a -> string -> int -> int
++val write_mmap : backend_mmap -> 'a -> string -> int -> int
++val write : t -> string -> int -> int
+ val output : t -> bool
+-
+-(** process the input queue, return if a packet has been totally received *)
+ val input : t -> bool
+-
+-(** create new connection using a fd interface *)
++val newcon : backend -> t
+ val open_fd : Unix.file_descr -> t
+-(** create new connection using a mmap intf and a function to notify eventchn *)
+-val open_mmap : Mmap.mmap_interface -> (unit -> unit) -> t
+-
+-(* close a connection *)
++val open_mmap : Xenmmap.mmap_interface -> (unit -> unit) -> t
+ val close : t -> unit
+-
+ val is_fd : t -> bool
+ val is_mmap : t -> bool
+-
+ val output_len : t -> int
+ val has_new_output : t -> bool
+ val has_old_output : t -> bool
+ val has_output : t -> bool
+ val peek_output : t -> Packet.t
+-
+ val input_len : t -> int
+ val has_in_packet : t -> bool
+ val get_in_packet : t -> Packet.t
+ val has_more_input : t -> bool
+-
+ val is_selectable : t -> bool
+ val get_fd : t -> Unix.file_descr
+diff --git a/tools/ocaml/libs/xb/xb_stubs.c b/tools/ocaml/libs/xb/xb_stubs.c
+deleted file mode 100644
+--- a/tools/ocaml/libs/xb/xb_stubs.c
++++ /dev/null
+@@ -1,71 +0,0 @@
+-/*
+- * Copyright (C) 2006-2007 XenSource Ltd.
+- * Copyright (C) 2008      Citrix Ltd.
+- * Author Vincent Hanquez <vincent.hanquez@eu.citrix.com>
+- *
+- * This program is free software; you can redistribute it and/or modify
+- * it under the terms of the GNU Lesser General Public License as published
+- * by the Free Software Foundation; version 2.1 only. with the special
+- * exception on linking described in file LICENSE.
+- *
+- * This program is distributed in the hope that it will be useful,
+- * but WITHOUT ANY WARRANTY; without even the implied warranty of
+- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+- * GNU Lesser General Public License for more details.
+- */
+-
+-#include <unistd.h>
+-#include <stdlib.h>
+-#include <sys/mman.h>
+-#include <string.h>
+-#include <errno.h>
+-
+-#include <caml/mlvalues.h>
+-#include <caml/memory.h>
+-#include <caml/alloc.h>
+-#include <caml/custom.h>
+-#include <caml/fail.h>
+-#include <caml/callback.h>
+-
+-#include <xenctrl.h>
+-#include <xen/io/xs_wire.h>
+-
+-CAMLprim value stub_header_size(void)
+-{
+-	CAMLparam0();
+-	CAMLreturn(Val_int(sizeof(struct xsd_sockmsg)));
+-}
+-
+-CAMLprim value stub_header_of_string(value s)
+-{
+-	CAMLparam1(s);
+-	CAMLlocal1(ret);
+-	struct xsd_sockmsg *hdr;
+-
+-	if (caml_string_length(s) != sizeof(struct xsd_sockmsg))
+-		caml_failwith("xb header incomplete");
+-	ret = caml_alloc_tuple(4);
+-	hdr = (struct xsd_sockmsg *) String_val(s);
+-	Store_field(ret, 0, Val_int(hdr->tx_id));
+-	Store_field(ret, 1, Val_int(hdr->req_id));
+-	Store_field(ret, 2, Val_int(hdr->type));
+-	Store_field(ret, 3, Val_int(hdr->len));
+-	CAMLreturn(ret);
+-}
+-
+-CAMLprim value stub_string_of_header(value tid, value rid, value ty, value len)
+-{
+-	CAMLparam4(tid, rid, ty, len);
+-	CAMLlocal1(ret);
+-	struct xsd_sockmsg xsd = {
+-		.type = Int_val(ty),
+-		.tx_id = Int_val(tid),
+-		.req_id = Int_val(rid),
+-		.len = Int_val(len),
+-	};
+-
+-	ret = caml_alloc_string(sizeof(struct xsd_sockmsg));
+-	memcpy(String_val(ret), &xsd, sizeof(struct xsd_sockmsg));
+-
+-	CAMLreturn(ret);
+-}
+diff --git a/tools/ocaml/libs/xb/xenbus_stubs.c b/tools/ocaml/libs/xb/xenbus_stubs.c
+new file mode 100644
+--- /dev/null
++++ b/tools/ocaml/libs/xb/xenbus_stubs.c
+@@ -0,0 +1,71 @@
++/*
++ * Copyright (C) 2006-2007 XenSource Ltd.
++ * Copyright (C) 2008      Citrix Ltd.
++ * Author Vincent Hanquez <vincent.hanquez@eu.citrix.com>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU Lesser General Public License as published
++ * by the Free Software Foundation; version 2.1 only. with the special
++ * exception on linking described in file LICENSE.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU Lesser General Public License for more details.
++ */
++
++#include <unistd.h>
++#include <stdlib.h>
++#include <sys/mman.h>
++#include <string.h>
++#include <errno.h>
++
++#include <caml/mlvalues.h>
++#include <caml/memory.h>
++#include <caml/alloc.h>
++#include <caml/custom.h>
++#include <caml/fail.h>
++#include <caml/callback.h>
++
++#include <xenctrl.h>
++#include <xen/io/xs_wire.h>
++
++CAMLprim value stub_header_size(void)
++{
++	CAMLparam0();
++	CAMLreturn(Val_int(sizeof(struct xsd_sockmsg)));
++}
++
++CAMLprim value stub_header_of_string(value s)
++{
++	CAMLparam1(s);
++	CAMLlocal1(ret);
++	struct xsd_sockmsg *hdr;
++
++	if (caml_string_length(s) != sizeof(struct xsd_sockmsg))
++		caml_failwith("xb header incomplete");
++	ret = caml_alloc_tuple(4);
++	hdr = (struct xsd_sockmsg *) String_val(s);
++	Store_field(ret, 0, Val_int(hdr->tx_id));
++	Store_field(ret, 1, Val_int(hdr->req_id));
++	Store_field(ret, 2, Val_int(hdr->type));
++	Store_field(ret, 3, Val_int(hdr->len));
++	CAMLreturn(ret);
++}
++
++CAMLprim value stub_string_of_header(value tid, value rid, value ty, value len)
++{
++	CAMLparam4(tid, rid, ty, len);
++	CAMLlocal1(ret);
++	struct xsd_sockmsg xsd = {
++		.type = Int_val(ty),
++		.tx_id = Int_val(tid),
++		.req_id = Int_val(rid),
++		.len = Int_val(len),
++	};
++
++	ret = caml_alloc_string(sizeof(struct xsd_sockmsg));
++	memcpy(String_val(ret), &xsd, sizeof(struct xsd_sockmsg));
++
++	CAMLreturn(ret);
++}
+diff --git a/tools/ocaml/libs/xb/xs_ring.ml b/tools/ocaml/libs/xb/xs_ring.ml
+--- a/tools/ocaml/libs/xb/xs_ring.ml
++++ b/tools/ocaml/libs/xb/xs_ring.ml
+@@ -14,5 +14,5 @@
+  * GNU Lesser General Public License for more details.
+  *)
+ 
+-external read: Mmap.mmap_interface -> string -> int -> int = "ml_interface_read"
+-external write: Mmap.mmap_interface -> string -> int -> int = "ml_interface_write"
++external read: Xenmmap.mmap_interface -> string -> int -> int = "ml_interface_read"
++external write: Xenmmap.mmap_interface -> string -> int -> int = "ml_interface_write"
+diff --git a/tools/ocaml/libs/xc/META.in b/tools/ocaml/libs/xc/META.in
+--- a/tools/ocaml/libs/xc/META.in
++++ b/tools/ocaml/libs/xc/META.in
+@@ -1,5 +1,5 @@
+ version = "@VERSION@"
+ description = "Xen Control Interface"
+-requires = "mmap,uuid"
+-archive(byte) = "xc.cma"
+-archive(native) = "xc.cmxa"
++requires = "xenmmap,uuid"
++archive(byte) = "xenctrl.cma"
++archive(native) = "xenctrl.cmxa"
+diff --git a/tools/ocaml/libs/xc/Makefile b/tools/ocaml/libs/xc/Makefile
+--- a/tools/ocaml/libs/xc/Makefile
++++ b/tools/ocaml/libs/xc/Makefile
+@@ -5,16 +5,16 @@ include $(TOPLEVEL)/common.make
+ CFLAGS += -I../mmap -I./ -I$(XEN_ROOT)/tools/libxc
+ OCAMLINCLUDE += -I ../mmap -I ../uuid -I $(XEN_ROOT)/tools/libxc
+ 
+-OBJS = xc
+-INTF = xc.cmi
+-LIBS = xc.cma xc.cmxa
++OBJS = xenctrl
++INTF = xenctrl.cmi
++LIBS = xenctrl.cma xenctrl.cmxa
+ 
+-LIBS_xc = -L$(XEN_ROOT)/tools/libxc -lxenctrl -lxenguest
++LIBS_xenctrl = -L$(XEN_ROOT)/tools/libxc -lxenctrl -lxenguest
+ 
+-xc_OBJS = $(OBJS)
+-xc_C_OBJS = xc_stubs
++xenctrl_OBJS = $(OBJS)
++xenctrl_C_OBJS = xenctrl_stubs
+ 
+-OCAML_LIBRARY = xc
++OCAML_LIBRARY = xenctrl
+ 
+ all: $(INTF) $(LIBS)
+ 
+@@ -23,11 +23,11 @@ libs: $(LIBS)
+ .PHONY: install
+ install: $(LIBS) META
+ 	mkdir -p $(OCAMLDESTDIR)
+-	ocamlfind remove -destdir $(OCAMLDESTDIR) xc
+-	ocamlfind install -destdir $(OCAMLDESTDIR) -ldconf ignore xc META $(INTF) $(LIBS) *.a *.so *.cmx
++	ocamlfind remove -destdir $(OCAMLDESTDIR) xenctrl
++	ocamlfind install -destdir $(OCAMLDESTDIR) -ldconf ignore xenctrl META $(INTF) $(LIBS) *.a *.so *.cmx
+ 
+ .PHONY: uninstall
+ uninstall:
+-	ocamlfind remove -destdir $(OCAMLDESTDIR) xc
++	ocamlfind remove -destdir $(OCAMLDESTDIR) xenctrl
+ 
+ include $(TOPLEVEL)/Makefile.rules
+diff --git a/tools/ocaml/libs/xc/xc.ml b/tools/ocaml/libs/xc/xc.ml
+deleted file mode 100644
+--- a/tools/ocaml/libs/xc/xc.ml
++++ /dev/null
+@@ -1,326 +0,0 @@
+-(*
+- * Copyright (C) 2006-2007 XenSource Ltd.
+- * Copyright (C) 2008      Citrix Ltd.
+- * Author Vincent Hanquez <vincent.hanquez@eu.citrix.com>
+- *
+- * This program is free software; you can redistribute it and/or modify
+- * it under the terms of the GNU Lesser General Public License as published
+- * by the Free Software Foundation; version 2.1 only. with the special
+- * exception on linking described in file LICENSE.
+- *
+- * This program is distributed in the hope that it will be useful,
+- * but WITHOUT ANY WARRANTY; without even the implied warranty of
+- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+- * GNU Lesser General Public License for more details.
+- *)
+-
+-(** *)
+-type domid = int
+-
+-(* ** xenctrl.h ** *)
+-
+-type vcpuinfo =
+-{
+-	online: bool;
+-	blocked: bool;
+-	running: bool;
+-	cputime: int64;
+-	cpumap: int32;
+-}
+-
+-type domaininfo =
+-{
+-	domid             : domid;
+-	dying             : bool;
+-	shutdown          : bool;
+-	paused            : bool;
+-	blocked           : bool;
+-	running           : bool;
+-	hvm_guest         : bool;
+-	shutdown_code     : int;
+-	total_memory_pages: nativeint;
+-	max_memory_pages  : nativeint;
+-	shared_info_frame : int64;
+-	cpu_time          : int64;
+-	nr_online_vcpus   : int;
+-	max_vcpu_id       : int;
+-	ssidref           : int32;
+-	handle            : int array;
+-}
+-
+-type sched_control =
+-{
+-	weight : int;
+-	cap    : int;
+-}
+-
+-type physinfo_cap_flag =
+-	| CAP_HVM
+-	| CAP_DirectIO
+-
+-type physinfo =
+-{
+-	threads_per_core : int;
+-	cores_per_socket : int;
+-	nr_cpus          : int;
+-	max_node_id      : int;
+-	cpu_khz          : int;
+-	total_pages      : nativeint;
+-	free_pages       : nativeint;
+-	scrub_pages      : nativeint;
+-	(* XXX hw_cap *)
+-	capabilities     : physinfo_cap_flag list;
+-}
+-
+-type version =
+-{
+-	major : int;
+-	minor : int;
+-	extra : string;
+-}
+-
+-
+-type compile_info =
+-{
+-	compiler : string;
+-	compile_by : string;
+-	compile_domain : string;
+-	compile_date : string;
+-}
+-
+-type shutdown_reason = Poweroff | Reboot | Suspend | Crash | Halt
+-
+-type domain_create_flag = CDF_HVM | CDF_HAP
+-
+-exception Error of string
+-
+-type handle
+-
+-(* this is only use by coredumping *)
+-external sizeof_core_header: unit -> int
+-       = "stub_sizeof_core_header"
+-external sizeof_vcpu_guest_context: unit -> int
+-       = "stub_sizeof_vcpu_guest_context"
+-external sizeof_xen_pfn: unit -> int = "stub_sizeof_xen_pfn"
+-(* end of use *)
+-
+-external interface_open: unit -> handle = "stub_xc_interface_open"
+-external interface_close: handle -> unit = "stub_xc_interface_close"
+-
+-external is_fake: unit -> bool = "stub_xc_interface_is_fake"
+-
+-let with_intf f =
+-	let xc = interface_open () in
+-	let r = try f xc with exn -> interface_close xc; raise exn in
+-	interface_close xc;
+-	r
+-
+-external _domain_create: handle -> int32 -> domain_create_flag list -> int array -> domid
+-       = "stub_xc_domain_create"
+-
+-let domain_create handle n flags uuid =
+-	_domain_create handle n flags (Uuid.int_array_of_uuid uuid)
+-
+-external _domain_sethandle: handle -> domid -> int array -> unit
+-                          = "stub_xc_domain_sethandle"
+-
+-let domain_sethandle handle n uuid =
+-	_domain_sethandle handle n (Uuid.int_array_of_uuid uuid)
+-
+-external domain_max_vcpus: handle -> domid -> int -> unit
+-       = "stub_xc_domain_max_vcpus"
+-
+-external domain_pause: handle -> domid -> unit = "stub_xc_domain_pause"
+-external domain_unpause: handle -> domid -> unit = "stub_xc_domain_unpause"
+-external domain_resume_fast: handle -> domid -> unit = "stub_xc_domain_resume_fast"
+-external domain_destroy: handle -> domid -> unit = "stub_xc_domain_destroy"
+-
+-external domain_shutdown: handle -> domid -> shutdown_reason -> unit
+-       = "stub_xc_domain_shutdown"
+-
+-external _domain_getinfolist: handle -> domid -> int -> domaininfo list
+-       = "stub_xc_domain_getinfolist"
+-
+-let domain_getinfolist handle first_domain =
+-	let nb = 2 in
+-	let last_domid l = (List.hd l).domid + 1 in
+-	let rec __getlist from =
+-		let l = _domain_getinfolist handle from nb in
+-		(if List.length l = nb then __getlist (last_domid l) else []) @ l
+-		in
+-	List.rev (__getlist first_domain)
+-
+-external domain_getinfo: handle -> domid -> domaininfo= "stub_xc_domain_getinfo"
+-
+-external domain_get_vcpuinfo: handle -> int -> int -> vcpuinfo
+-       = "stub_xc_vcpu_getinfo"
+-
+-external domain_ioport_permission: handle -> domid -> int -> int -> bool -> unit
+-       = "stub_xc_domain_ioport_permission"
+-external domain_iomem_permission: handle -> domid -> nativeint -> nativeint -> bool -> unit
+-       = "stub_xc_domain_iomem_permission"
+-external domain_irq_permission: handle -> domid -> int -> bool -> unit
+-       = "stub_xc_domain_irq_permission"
+-
+-external vcpu_affinity_set: handle -> domid -> int -> bool array -> unit
+-       = "stub_xc_vcpu_setaffinity"
+-external vcpu_affinity_get: handle -> domid -> int -> bool array
+-       = "stub_xc_vcpu_getaffinity"
+-
+-external vcpu_context_get: handle -> domid -> int -> string
+-       = "stub_xc_vcpu_context_get"
+-
+-external sched_id: handle -> int = "stub_xc_sched_id"
+-
+-external sched_credit_domain_set: handle -> domid -> sched_control -> unit
+-       = "stub_sched_credit_domain_set"
+-external sched_credit_domain_get: handle -> domid -> sched_control
+-       = "stub_sched_credit_domain_get"
+-
+-external shadow_allocation_set: handle -> domid -> int -> unit
+-       = "stub_shadow_allocation_set"
+-external shadow_allocation_get: handle -> domid -> int
+-       = "stub_shadow_allocation_get"
+-
+-external evtchn_alloc_unbound: handle -> domid -> domid -> int
+-       = "stub_xc_evtchn_alloc_unbound"
+-external evtchn_reset: handle -> domid -> unit = "stub_xc_evtchn_reset"
+-
+-external readconsolering: handle -> string = "stub_xc_readconsolering"
+-
+-external send_debug_keys: handle -> string -> unit = "stub_xc_send_debug_keys"
+-external physinfo: handle -> physinfo = "stub_xc_physinfo"
+-external pcpu_info: handle -> int -> int64 array = "stub_xc_pcpu_info"
+-
+-external domain_setmaxmem: handle -> domid -> int64 -> unit
+-       = "stub_xc_domain_setmaxmem"
+-external domain_set_memmap_limit: handle -> domid -> int64 -> unit
+-       = "stub_xc_domain_set_memmap_limit"
+-external domain_memory_increase_reservation: handle -> domid -> int64 -> unit
+-       = "stub_xc_domain_memory_increase_reservation"
+-
+-external domain_set_machine_address_size: handle -> domid -> int -> unit
+-       = "stub_xc_domain_set_machine_address_size"
+-external domain_get_machine_address_size: handle -> domid -> int
+-       = "stub_xc_domain_get_machine_address_size"
+-
+-external domain_cpuid_set: handle -> domid -> (int64 * (int64 option))
+-                        -> string option array
+-                        -> string option array
+-       = "stub_xc_domain_cpuid_set"
+-external domain_cpuid_apply_policy: handle -> domid -> unit
+-       = "stub_xc_domain_cpuid_apply_policy"
+-external cpuid_check: handle -> (int64 * (int64 option)) -> string option array -> (bool * string option array)
+-       = "stub_xc_cpuid_check"
+-
+-external map_foreign_range: handle -> domid -> int
+-                         -> nativeint -> Mmap.mmap_interface
+-       = "stub_map_foreign_range"
+-
+-external domain_get_pfn_list: handle -> domid -> nativeint -> nativeint array
+-       = "stub_xc_domain_get_pfn_list"
+-
+-external domain_assign_device: handle -> domid -> (int * int * int * int) -> unit
+-       = "stub_xc_domain_assign_device"
+-external domain_deassign_device: handle -> domid -> (int * int * int * int) -> unit
+-       = "stub_xc_domain_deassign_device"
+-external domain_test_assign_device: handle -> domid -> (int * int * int * int) -> bool
+-       = "stub_xc_domain_test_assign_device"
+-
+-external version: handle -> version = "stub_xc_version_version"
+-external version_compile_info: handle -> compile_info
+-       = "stub_xc_version_compile_info"
+-external version_changeset: handle -> string = "stub_xc_version_changeset"
+-external version_capabilities: handle -> string =
+-  "stub_xc_version_capabilities"
+-
+-external watchdog : handle -> int -> int32 -> int
+-  = "stub_xc_watchdog"
+-
+-(* core dump structure *)
+-type core_magic = Magic_hvm | Magic_pv
+-
+-type core_header = {
+-	xch_magic: core_magic;
+-	xch_nr_vcpus: int;
+-	xch_nr_pages: nativeint;
+-	xch_index_offset: int64;
+-	xch_ctxt_offset: int64;
+-	xch_pages_offset: int64;
+-}
+-
+-external marshall_core_header: core_header -> string = "stub_marshall_core_header"
+-
+-(* coredump *)
+-let coredump xch domid fd =
+-	let dump s =
+-		let wd = Unix.write fd s 0 (String.length s) in
+-		if wd <> String.length s then
+-			failwith "error while writing";
+-		in
+-
+-	let info = domain_getinfo xch domid in
+-
+-	let nrpages = info.total_memory_pages in
+-	let ctxt = Array.make info.max_vcpu_id None in
+-	let nr_vcpus = ref 0 in
+-	for i = 0 to info.max_vcpu_id - 1
+-	do
+-		ctxt.(i) <- try
+-			let v = vcpu_context_get xch domid i in
+-			incr nr_vcpus;
+-			Some v
+-			with _ -> None
+-	done;
+-
+-	(* FIXME page offset if not rounded to sup *)
+-	let page_offset =
+-		Int64.add
+-			(Int64.of_int (sizeof_core_header () +
+-			 (sizeof_vcpu_guest_context () * !nr_vcpus)))
+-			(Int64.of_nativeint (
+-				Nativeint.mul
+-					(Nativeint.of_int (sizeof_xen_pfn ()))
+-					nrpages)
+-				)
+-		in
+-
+-	let header = {
+-		xch_magic = if info.hvm_guest then Magic_hvm else Magic_pv;
+-		xch_nr_vcpus = !nr_vcpus;
+-		xch_nr_pages = nrpages;
+-		xch_ctxt_offset = Int64.of_int (sizeof_core_header ());
+-		xch_index_offset = Int64.of_int (sizeof_core_header ()
+-					+ sizeof_vcpu_guest_context ());
+-		xch_pages_offset = page_offset;
+-	} in
+-
+-	dump (marshall_core_header header);
+-	for i = 0 to info.max_vcpu_id - 1
+-	do
+-		match ctxt.(i) with
+-		| None -> ()
+-		| Some ctxt_i -> dump ctxt_i
+-	done;
+-	let pfns = domain_get_pfn_list xch domid nrpages in
+-	if Array.length pfns <> Nativeint.to_int nrpages then
+-		failwith "could not get the page frame list";
+-
+-	let page_size = Mmap.getpagesize () in
+-	for i = 0 to Nativeint.to_int nrpages - 1
+-	do
+-		let page = map_foreign_range xch domid page_size pfns.(i) in
+-		let data = Mmap.read page 0 page_size in
+-		Mmap.unmap page;
+-		dump data
+-	done
+-
+-(* ** Misc ** *)
+-
+-(**
+-   Convert the given number of pages to an amount in KiB, rounded up.
+- *)
+-external pages_to_kib : int64 -> int64 = "stub_pages_to_kib"
+-let pages_to_mib pages = Int64.div (pages_to_kib pages) 1024L
+-
+-let _ = Callback.register_exception "xc.error" (Error "register_callback")
+diff --git a/tools/ocaml/libs/xc/xc.mli b/tools/ocaml/libs/xc/xc.mli
+deleted file mode 100644
+--- a/tools/ocaml/libs/xc/xc.mli
++++ /dev/null
+@@ -1,184 +0,0 @@
+-(*
+- * Copyright (C) 2006-2007 XenSource Ltd.
+- * Copyright (C) 2008      Citrix Ltd.
+- * Author Vincent Hanquez <vincent.hanquez@eu.citrix.com>
+- *
+- * This program is free software; you can redistribute it and/or modify
+- * it under the terms of the GNU Lesser General Public License as published
+- * by the Free Software Foundation; version 2.1 only. with the special
+- * exception on linking described in file LICENSE.
+- *
+- * This program is distributed in the hope that it will be useful,
+- * but WITHOUT ANY WARRANTY; without even the implied warranty of
+- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+- * GNU Lesser General Public License for more details.
+- *)
+-
+-type domid = int
+-type vcpuinfo = {
+-  online : bool;
+-  blocked : bool;
+-  running : bool;
+-  cputime : int64;
+-  cpumap : int32;
+-}
+-type domaininfo = {
+-  domid : domid;
+-  dying : bool;
+-  shutdown : bool;
+-  paused : bool;
+-  blocked : bool;
+-  running : bool;
+-  hvm_guest : bool;
+-  shutdown_code : int;
+-  total_memory_pages : nativeint;
+-  max_memory_pages : nativeint;
+-  shared_info_frame : int64;
+-  cpu_time : int64;
+-  nr_online_vcpus : int;
+-  max_vcpu_id : int;
+-  ssidref : int32;
+-  handle : int array;
+-}
+-type sched_control = { weight : int; cap : int; }
+-type physinfo_cap_flag = CAP_HVM | CAP_DirectIO
+-type physinfo = {
+-  threads_per_core : int;
+-  cores_per_socket : int;
+-  nr_cpus          : int;
+-  max_node_id      : int;
+-  cpu_khz          : int;
+-  total_pages      : nativeint;
+-  free_pages       : nativeint;
+-  scrub_pages      : nativeint;
+-  capabilities     : physinfo_cap_flag list;
+-}
+-type version = { major : int; minor : int; extra : string; }
+-type compile_info = {
+-  compiler : string;
+-  compile_by : string;
+-  compile_domain : string;
+-  compile_date : string;
+-}
+-type shutdown_reason = Poweroff | Reboot | Suspend | Crash | Halt
+-
+-type domain_create_flag = CDF_HVM | CDF_HAP
+-
+-exception Error of string
+-type handle
+-external sizeof_core_header : unit -> int = "stub_sizeof_core_header"
+-external sizeof_vcpu_guest_context : unit -> int
+-  = "stub_sizeof_vcpu_guest_context"
+-external sizeof_xen_pfn : unit -> int = "stub_sizeof_xen_pfn"
+-external interface_open : unit -> handle = "stub_xc_interface_open"
+-external is_fake : unit -> bool = "stub_xc_interface_is_fake"
+-external interface_close : handle -> unit = "stub_xc_interface_close"
+-val with_intf : (handle -> 'a) -> 'a
+-external _domain_create : handle -> int32 -> domain_create_flag list -> int array -> domid
+-  = "stub_xc_domain_create"
+-val domain_create : handle -> int32 -> domain_create_flag list -> 'a Uuid.t -> domid
+-external _domain_sethandle : handle -> domid -> int array -> unit
+-  = "stub_xc_domain_sethandle"
+-val domain_sethandle : handle -> domid -> 'a Uuid.t -> unit
+-external domain_max_vcpus : handle -> domid -> int -> unit
+-  = "stub_xc_domain_max_vcpus"
+-external domain_pause : handle -> domid -> unit = "stub_xc_domain_pause"
+-external domain_unpause : handle -> domid -> unit = "stub_xc_domain_unpause"
+-external domain_resume_fast : handle -> domid -> unit
+-  = "stub_xc_domain_resume_fast"
+-external domain_destroy : handle -> domid -> unit = "stub_xc_domain_destroy"
+-external domain_shutdown : handle -> domid -> shutdown_reason -> unit
+-  = "stub_xc_domain_shutdown"
+-external _domain_getinfolist : handle -> domid -> int -> domaininfo list
+-  = "stub_xc_domain_getinfolist"
+-val domain_getinfolist : handle -> domid -> domaininfo list
+-external domain_getinfo : handle -> domid -> domaininfo
+-  = "stub_xc_domain_getinfo"
+-external domain_get_vcpuinfo : handle -> int -> int -> vcpuinfo
+-  = "stub_xc_vcpu_getinfo"
+-external domain_ioport_permission: handle -> domid -> int -> int -> bool -> unit
+-       = "stub_xc_domain_ioport_permission"
+-external domain_iomem_permission: handle -> domid -> nativeint -> nativeint -> bool -> unit
+-       = "stub_xc_domain_iomem_permission"
+-external domain_irq_permission: handle -> domid -> int -> bool -> unit
+-       = "stub_xc_domain_irq_permission"
+-external vcpu_affinity_set : handle -> domid -> int -> bool array -> unit
+-  = "stub_xc_vcpu_setaffinity"
+-external vcpu_affinity_get : handle -> domid -> int -> bool array
+-  = "stub_xc_vcpu_getaffinity"
+-external vcpu_context_get : handle -> domid -> int -> string
+-  = "stub_xc_vcpu_context_get"
+-external sched_id : handle -> int = "stub_xc_sched_id"
+-external sched_credit_domain_set : handle -> domid -> sched_control -> unit
+-  = "stub_sched_credit_domain_set"
+-external sched_credit_domain_get : handle -> domid -> sched_control
+-  = "stub_sched_credit_domain_get"
+-external shadow_allocation_set : handle -> domid -> int -> unit
+-  = "stub_shadow_allocation_set"
+-external shadow_allocation_get : handle -> domid -> int
+-  = "stub_shadow_allocation_get"
+-external evtchn_alloc_unbound : handle -> domid -> domid -> int
+-  = "stub_xc_evtchn_alloc_unbound"
+-external evtchn_reset : handle -> domid -> unit = "stub_xc_evtchn_reset"
+-external readconsolering : handle -> string = "stub_xc_readconsolering"
+-external send_debug_keys : handle -> string -> unit = "stub_xc_send_debug_keys"
+-external physinfo : handle -> physinfo = "stub_xc_physinfo"
+-external pcpu_info: handle -> int -> int64 array = "stub_xc_pcpu_info"
+-external domain_setmaxmem : handle -> domid -> int64 -> unit
+-  = "stub_xc_domain_setmaxmem"
+-external domain_set_memmap_limit : handle -> domid -> int64 -> unit
+-  = "stub_xc_domain_set_memmap_limit"
+-external domain_memory_increase_reservation :
+-  handle -> domid -> int64 -> unit
+-  = "stub_xc_domain_memory_increase_reservation"
+-external map_foreign_range :
+-  handle -> domid -> int -> nativeint -> Mmap.mmap_interface
+-  = "stub_map_foreign_range"
+-external domain_get_pfn_list :
+-  handle -> domid -> nativeint -> nativeint array
+-  = "stub_xc_domain_get_pfn_list"
+-
+-external domain_assign_device: handle -> domid -> (int * int * int * int) -> unit
+-       = "stub_xc_domain_assign_device"
+-external domain_deassign_device: handle -> domid -> (int * int * int * int) -> unit
+-       = "stub_xc_domain_deassign_device"
+-external domain_test_assign_device: handle -> domid -> (int * int * int * int) -> bool
+-       = "stub_xc_domain_test_assign_device"
+-
+-external version : handle -> version = "stub_xc_version_version"
+-external version_compile_info : handle -> compile_info
+-  = "stub_xc_version_compile_info"
+-external version_changeset : handle -> string = "stub_xc_version_changeset"
+-external version_capabilities : handle -> string
+-  = "stub_xc_version_capabilities"
+-type core_magic = Magic_hvm | Magic_pv
+-type core_header = {
+-  xch_magic : core_magic;
+-  xch_nr_vcpus : int;
+-  xch_nr_pages : nativeint;
+-  xch_index_offset : int64;
+-  xch_ctxt_offset : int64;
+-  xch_pages_offset : int64;
+-}
+-external marshall_core_header : core_header -> string
+-  = "stub_marshall_core_header"
+-val coredump : handle -> domid -> Unix.file_descr -> unit
+-external pages_to_kib : int64 -> int64 = "stub_pages_to_kib"
+-val pages_to_mib : int64 -> int64
+-external watchdog : handle -> int -> int32 -> int
+-  = "stub_xc_watchdog"
+-
+-external domain_set_machine_address_size: handle -> domid -> int -> unit
+-  = "stub_xc_domain_set_machine_address_size"
+-external domain_get_machine_address_size: handle -> domid -> int
+-       = "stub_xc_domain_get_machine_address_size"
+-
+-external domain_cpuid_set: handle -> domid -> (int64 * (int64 option))
+-                        -> string option array
+-                        -> string option array
+-       = "stub_xc_domain_cpuid_set"
+-external domain_cpuid_apply_policy: handle -> domid -> unit
+-       = "stub_xc_domain_cpuid_apply_policy"
+-external cpuid_check: handle -> (int64 * (int64 option)) -> string option array -> (bool * string option array)
+-       = "stub_xc_cpuid_check"
+-
+diff --git a/tools/ocaml/libs/xc/xenctrl.ml b/tools/ocaml/libs/xc/xenctrl.ml
+new file mode 100644
+--- /dev/null
++++ b/tools/ocaml/libs/xc/xenctrl.ml
+@@ -0,0 +1,326 @@
++(*
++ * Copyright (C) 2006-2007 XenSource Ltd.
++ * Copyright (C) 2008      Citrix Ltd.
++ * Author Vincent Hanquez <vincent.hanquez@eu.citrix.com>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU Lesser General Public License as published
++ * by the Free Software Foundation; version 2.1 only. with the special
++ * exception on linking described in file LICENSE.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU Lesser General Public License for more details.
++ *)
++
++(** *)
++type domid = int
++
++(* ** xenctrl.h ** *)
++
++type vcpuinfo =
++{
++	online: bool;
++	blocked: bool;
++	running: bool;
++	cputime: int64;
++	cpumap: int32;
++}
++
++type domaininfo =
++{
++	domid             : domid;
++	dying             : bool;
++	shutdown          : bool;
++	paused            : bool;
++	blocked           : bool;
++	running           : bool;
++	hvm_guest         : bool;
++	shutdown_code     : int;
++	total_memory_pages: nativeint;
++	max_memory_pages  : nativeint;
++	shared_info_frame : int64;
++	cpu_time          : int64;
++	nr_online_vcpus   : int;
++	max_vcpu_id       : int;
++	ssidref           : int32;
++	handle            : int array;
++}
++
++type sched_control =
++{
++	weight : int;
++	cap    : int;
++}
++
++type physinfo_cap_flag =
++	| CAP_HVM
++	| CAP_DirectIO
++
++type physinfo =
++{
++	threads_per_core : int;
++	cores_per_socket : int;
++	nr_cpus          : int;
++	max_node_id      : int;
++	cpu_khz          : int;
++	total_pages      : nativeint;
++	free_pages       : nativeint;
++	scrub_pages      : nativeint;
++	(* XXX hw_cap *)
++	capabilities     : physinfo_cap_flag list;
++}
++
++type version =
++{
++	major : int;
++	minor : int;
++	extra : string;
++}
++
++
++type compile_info =
++{
++	compiler : string;
++	compile_by : string;
++	compile_domain : string;
++	compile_date : string;
++}
++
++type shutdown_reason = Poweroff | Reboot | Suspend | Crash | Halt
++
++type domain_create_flag = CDF_HVM | CDF_HAP
++
++exception Error of string
++
++type handle
++
++(* this is only use by coredumping *)
++external sizeof_core_header: unit -> int
++       = "stub_sizeof_core_header"
++external sizeof_vcpu_guest_context: unit -> int
++       = "stub_sizeof_vcpu_guest_context"
++external sizeof_xen_pfn: unit -> int = "stub_sizeof_xen_pfn"
++(* end of use *)
++
++external interface_open: unit -> handle = "stub_xc_interface_open"
++external interface_close: handle -> unit = "stub_xc_interface_close"
++
++external is_fake: unit -> bool = "stub_xc_interface_is_fake"
++
++let with_intf f =
++	let xc = interface_open () in
++	let r = try f xc with exn -> interface_close xc; raise exn in
++	interface_close xc;
++	r
++
++external _domain_create: handle -> int32 -> domain_create_flag list -> int array -> domid
++       = "stub_xc_domain_create"
++
++let domain_create handle n flags uuid =
++	_domain_create handle n flags (Uuid.int_array_of_uuid uuid)
++
++external _domain_sethandle: handle -> domid -> int array -> unit
++                          = "stub_xc_domain_sethandle"
++
++let domain_sethandle handle n uuid =
++	_domain_sethandle handle n (Uuid.int_array_of_uuid uuid)
++
++external domain_max_vcpus: handle -> domid -> int -> unit
++       = "stub_xc_domain_max_vcpus"
++
++external domain_pause: handle -> domid -> unit = "stub_xc_domain_pause"
++external domain_unpause: handle -> domid -> unit = "stub_xc_domain_unpause"
++external domain_resume_fast: handle -> domid -> unit = "stub_xc_domain_resume_fast"
++external domain_destroy: handle -> domid -> unit = "stub_xc_domain_destroy"
++
++external domain_shutdown: handle -> domid -> shutdown_reason -> unit
++       = "stub_xc_domain_shutdown"
++
++external _domain_getinfolist: handle -> domid -> int -> domaininfo list
++       = "stub_xc_domain_getinfolist"
++
++let domain_getinfolist handle first_domain =
++	let nb = 2 in
++	let last_domid l = (List.hd l).domid + 1 in
++	let rec __getlist from =
++		let l = _domain_getinfolist handle from nb in
++		(if List.length l = nb then __getlist (last_domid l) else []) @ l
++		in
++	List.rev (__getlist first_domain)
++
++external domain_getinfo: handle -> domid -> domaininfo= "stub_xc_domain_getinfo"
++
++external domain_get_vcpuinfo: handle -> int -> int -> vcpuinfo
++       = "stub_xc_vcpu_getinfo"
++
++external domain_ioport_permission: handle -> domid -> int -> int -> bool -> unit
++       = "stub_xc_domain_ioport_permission"
++external domain_iomem_permission: handle -> domid -> nativeint -> nativeint -> bool -> unit
++       = "stub_xc_domain_iomem_permission"
++external domain_irq_permission: handle -> domid -> int -> bool -> unit
++       = "stub_xc_domain_irq_permission"
++
++external vcpu_affinity_set: handle -> domid -> int -> bool array -> unit
++       = "stub_xc_vcpu_setaffinity"
++external vcpu_affinity_get: handle -> domid -> int -> bool array
++       = "stub_xc_vcpu_getaffinity"
++
++external vcpu_context_get: handle -> domid -> int -> string
++       = "stub_xc_vcpu_context_get"
++
++external sched_id: handle -> int = "stub_xc_sched_id"
++
++external sched_credit_domain_set: handle -> domid -> sched_control -> unit
++       = "stub_sched_credit_domain_set"
++external sched_credit_domain_get: handle -> domid -> sched_control
++       = "stub_sched_credit_domain_get"
++
++external shadow_allocation_set: handle -> domid -> int -> unit
++       = "stub_shadow_allocation_set"
++external shadow_allocation_get: handle -> domid -> int
++       = "stub_shadow_allocation_get"
++
++external evtchn_alloc_unbound: handle -> domid -> domid -> int
++       = "stub_xc_evtchn_alloc_unbound"
++external evtchn_reset: handle -> domid -> unit = "stub_xc_evtchn_reset"
++
++external readconsolering: handle -> string = "stub_xc_readconsolering"
++
++external send_debug_keys: handle -> string -> unit = "stub_xc_send_debug_keys"
++external physinfo: handle -> physinfo = "stub_xc_physinfo"
++external pcpu_info: handle -> int -> int64 array = "stub_xc_pcpu_info"
++
++external domain_setmaxmem: handle -> domid -> int64 -> unit
++       = "stub_xc_domain_setmaxmem"
++external domain_set_memmap_limit: handle -> domid -> int64 -> unit
++       = "stub_xc_domain_set_memmap_limit"
++external domain_memory_increase_reservation: handle -> domid -> int64 -> unit
++       = "stub_xc_domain_memory_increase_reservation"
++
++external domain_set_machine_address_size: handle -> domid -> int -> unit
++       = "stub_xc_domain_set_machine_address_size"
++external domain_get_machine_address_size: handle -> domid -> int
++       = "stub_xc_domain_get_machine_address_size"
++
++external domain_cpuid_set: handle -> domid -> (int64 * (int64 option))
++                        -> string option array
++                        -> string option array
++       = "stub_xc_domain_cpuid_set"
++external domain_cpuid_apply_policy: handle -> domid -> unit
++       = "stub_xc_domain_cpuid_apply_policy"
++external cpuid_check: handle -> (int64 * (int64 option)) -> string option array -> (bool * string option array)
++       = "stub_xc_cpuid_check"
++
++external map_foreign_range: handle -> domid -> int
++                         -> nativeint -> Xenmmap.mmap_interface
++       = "stub_map_foreign_range"
++
++external domain_get_pfn_list: handle -> domid -> nativeint -> nativeint array
++       = "stub_xc_domain_get_pfn_list"
++
++external domain_assign_device: handle -> domid -> (int * int * int * int) -> unit
++       = "stub_xc_domain_assign_device"
++external domain_deassign_device: handle -> domid -> (int * int * int * int) -> unit
++       = "stub_xc_domain_deassign_device"
++external domain_test_assign_device: handle -> domid -> (int * int * int * int) -> bool
++       = "stub_xc_domain_test_assign_device"
++
++external version: handle -> version = "stub_xc_version_version"
++external version_compile_info: handle -> compile_info
++       = "stub_xc_version_compile_info"
++external version_changeset: handle -> string = "stub_xc_version_changeset"
++external version_capabilities: handle -> string =
++  "stub_xc_version_capabilities"
++
++external watchdog : handle -> int -> int32 -> int
++  = "stub_xc_watchdog"
++
++(* core dump structure *)
++type core_magic = Magic_hvm | Magic_pv
++
++type core_header = {
++	xch_magic: core_magic;
++	xch_nr_vcpus: int;
++	xch_nr_pages: nativeint;
++	xch_index_offset: int64;
++	xch_ctxt_offset: int64;
++	xch_pages_offset: int64;
++}
++
++external marshall_core_header: core_header -> string = "stub_marshall_core_header"
++
++(* coredump *)
++let coredump xch domid fd =
++	let dump s =
++		let wd = Unix.write fd s 0 (String.length s) in
++		if wd <> String.length s then
++			failwith "error while writing";
++		in
++
++	let info = domain_getinfo xch domid in
++
++	let nrpages = info.total_memory_pages in
++	let ctxt = Array.make info.max_vcpu_id None in
++	let nr_vcpus = ref 0 in
++	for i = 0 to info.max_vcpu_id - 1
++	do
++		ctxt.(i) <- try
++			let v = vcpu_context_get xch domid i in
++			incr nr_vcpus;
++			Some v
++			with _ -> None
++	done;
++
++	(* FIXME page offset if not rounded to sup *)
++	let page_offset =
++		Int64.add
++			(Int64.of_int (sizeof_core_header () +
++			 (sizeof_vcpu_guest_context () * !nr_vcpus)))
++			(Int64.of_nativeint (
++				Nativeint.mul
++					(Nativeint.of_int (sizeof_xen_pfn ()))
++					nrpages)
++				)
++		in
++
++	let header = {
++		xch_magic = if info.hvm_guest then Magic_hvm else Magic_pv;
++		xch_nr_vcpus = !nr_vcpus;
++		xch_nr_pages = nrpages;
++		xch_ctxt_offset = Int64.of_int (sizeof_core_header ());
++		xch_index_offset = Int64.of_int (sizeof_core_header ()
++					+ sizeof_vcpu_guest_context ());
++		xch_pages_offset = page_offset;
++	} in
++
++	dump (marshall_core_header header);
++	for i = 0 to info.max_vcpu_id - 1
++	do
++		match ctxt.(i) with
++		| None -> ()
++		| Some ctxt_i -> dump ctxt_i
++	done;
++	let pfns = domain_get_pfn_list xch domid nrpages in
++	if Array.length pfns <> Nativeint.to_int nrpages then
++		failwith "could not get the page frame list";
++
++	let page_size = Xenmmap.getpagesize () in
++	for i = 0 to Nativeint.to_int nrpages - 1
++	do
++		let page = map_foreign_range xch domid page_size pfns.(i) in
++		let data = Xenmmap.read page 0 page_size in
++		Xenmmap.unmap page;
++		dump data
++	done
++
++(* ** Misc ** *)
++
++(**
++   Convert the given number of pages to an amount in KiB, rounded up.
++ *)
++external pages_to_kib : int64 -> int64 = "stub_pages_to_kib"
++let pages_to_mib pages = Int64.div (pages_to_kib pages) 1024L
++
++let _ = Callback.register_exception "xc.error" (Error "register_callback")
+diff --git a/tools/ocaml/libs/xc/xenctrl.mli b/tools/ocaml/libs/xc/xenctrl.mli
+new file mode 100644
+--- /dev/null
++++ b/tools/ocaml/libs/xc/xenctrl.mli
+@@ -0,0 +1,184 @@
++(*
++ * Copyright (C) 2006-2007 XenSource Ltd.
++ * Copyright (C) 2008      Citrix Ltd.
++ * Author Vincent Hanquez <vincent.hanquez@eu.citrix.com>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU Lesser General Public License as published
++ * by the Free Software Foundation; version 2.1 only. with the special
++ * exception on linking described in file LICENSE.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU Lesser General Public License for more details.
++ *)
++
++type domid = int
++type vcpuinfo = {
++  online : bool;
++  blocked : bool;
++  running : bool;
++  cputime : int64;
++  cpumap : int32;
++}
++type domaininfo = {
++  domid : domid;
++  dying : bool;
++  shutdown : bool;
++  paused : bool;
++  blocked : bool;
++  running : bool;
++  hvm_guest : bool;
++  shutdown_code : int;
++  total_memory_pages : nativeint;
++  max_memory_pages : nativeint;
++  shared_info_frame : int64;
++  cpu_time : int64;
++  nr_online_vcpus : int;
++  max_vcpu_id : int;
++  ssidref : int32;
++  handle : int array;
++}
++type sched_control = { weight : int; cap : int; }
++type physinfo_cap_flag = CAP_HVM | CAP_DirectIO
++type physinfo = {
++  threads_per_core : int;
++  cores_per_socket : int;
++  nr_cpus          : int;
++  max_node_id      : int;
++  cpu_khz          : int;
++  total_pages      : nativeint;
++  free_pages       : nativeint;
++  scrub_pages      : nativeint;
++  capabilities     : physinfo_cap_flag list;
++}
++type version = { major : int; minor : int; extra : string; }
++type compile_info = {
++  compiler : string;
++  compile_by : string;
++  compile_domain : string;
++  compile_date : string;
++}
++type shutdown_reason = Poweroff | Reboot | Suspend | Crash | Halt
++
++type domain_create_flag = CDF_HVM | CDF_HAP
++
++exception Error of string
++type handle
++external sizeof_core_header : unit -> int = "stub_sizeof_core_header"
++external sizeof_vcpu_guest_context : unit -> int
++  = "stub_sizeof_vcpu_guest_context"
++external sizeof_xen_pfn : unit -> int = "stub_sizeof_xen_pfn"
++external interface_open : unit -> handle = "stub_xc_interface_open"
++external is_fake : unit -> bool = "stub_xc_interface_is_fake"
++external interface_close : handle -> unit = "stub_xc_interface_close"
++val with_intf : (handle -> 'a) -> 'a
++external _domain_create : handle -> int32 -> domain_create_flag list -> int array -> domid
++  = "stub_xc_domain_create"
++val domain_create : handle -> int32 -> domain_create_flag list -> 'a Uuid.t -> domid
++external _domain_sethandle : handle -> domid -> int array -> unit
++  = "stub_xc_domain_sethandle"
++val domain_sethandle : handle -> domid -> 'a Uuid.t -> unit
++external domain_max_vcpus : handle -> domid -> int -> unit
++  = "stub_xc_domain_max_vcpus"
++external domain_pause : handle -> domid -> unit = "stub_xc_domain_pause"
++external domain_unpause : handle -> domid -> unit = "stub_xc_domain_unpause"
++external domain_resume_fast : handle -> domid -> unit
++  = "stub_xc_domain_resume_fast"
++external domain_destroy : handle -> domid -> unit = "stub_xc_domain_destroy"
++external domain_shutdown : handle -> domid -> shutdown_reason -> unit
++  = "stub_xc_domain_shutdown"
++external _domain_getinfolist : handle -> domid -> int -> domaininfo list
++  = "stub_xc_domain_getinfolist"
++val domain_getinfolist : handle -> domid -> domaininfo list
++external domain_getinfo : handle -> domid -> domaininfo
++  = "stub_xc_domain_getinfo"
++external domain_get_vcpuinfo : handle -> int -> int -> vcpuinfo
++  = "stub_xc_vcpu_getinfo"
++external domain_ioport_permission: handle -> domid -> int -> int -> bool -> unit
++       = "stub_xc_domain_ioport_permission"
++external domain_iomem_permission: handle -> domid -> nativeint -> nativeint -> bool -> unit
++       = "stub_xc_domain_iomem_permission"
++external domain_irq_permission: handle -> domid -> int -> bool -> unit
++       = "stub_xc_domain_irq_permission"
++external vcpu_affinity_set : handle -> domid -> int -> bool array -> unit
++  = "stub_xc_vcpu_setaffinity"
++external vcpu_affinity_get : handle -> domid -> int -> bool array
++  = "stub_xc_vcpu_getaffinity"
++external vcpu_context_get : handle -> domid -> int -> string
++  = "stub_xc_vcpu_context_get"
++external sched_id : handle -> int = "stub_xc_sched_id"
++external sched_credit_domain_set : handle -> domid -> sched_control -> unit
++  = "stub_sched_credit_domain_set"
++external sched_credit_domain_get : handle -> domid -> sched_control
++  = "stub_sched_credit_domain_get"
++external shadow_allocation_set : handle -> domid -> int -> unit
++  = "stub_shadow_allocation_set"
++external shadow_allocation_get : handle -> domid -> int
++  = "stub_shadow_allocation_get"
++external evtchn_alloc_unbound : handle -> domid -> domid -> int
++  = "stub_xc_evtchn_alloc_unbound"
++external evtchn_reset : handle -> domid -> unit = "stub_xc_evtchn_reset"
++external readconsolering : handle -> string = "stub_xc_readconsolering"
++external send_debug_keys : handle -> string -> unit = "stub_xc_send_debug_keys"
++external physinfo : handle -> physinfo = "stub_xc_physinfo"
++external pcpu_info: handle -> int -> int64 array = "stub_xc_pcpu_info"
++external domain_setmaxmem : handle -> domid -> int64 -> unit
++  = "stub_xc_domain_setmaxmem"
++external domain_set_memmap_limit : handle -> domid -> int64 -> unit
++  = "stub_xc_domain_set_memmap_limit"
++external domain_memory_increase_reservation :
++  handle -> domid -> int64 -> unit
++  = "stub_xc_domain_memory_increase_reservation"
++external map_foreign_range :
++  handle -> domid -> int -> nativeint -> Xenmmap.mmap_interface
++  = "stub_map_foreign_range"
++external domain_get_pfn_list :
++  handle -> domid -> nativeint -> nativeint array
++  = "stub_xc_domain_get_pfn_list"
++
++external domain_assign_device: handle -> domid -> (int * int * int * int) -> unit
++       = "stub_xc_domain_assign_device"
++external domain_deassign_device: handle -> domid -> (int * int * int * int) -> unit
++       = "stub_xc_domain_deassign_device"
++external domain_test_assign_device: handle -> domid -> (int * int * int * int) -> bool
++       = "stub_xc_domain_test_assign_device"
++
++external version : handle -> version = "stub_xc_version_version"
++external version_compile_info : handle -> compile_info
++  = "stub_xc_version_compile_info"
++external version_changeset : handle -> string = "stub_xc_version_changeset"
++external version_capabilities : handle -> string
++  = "stub_xc_version_capabilities"
++type core_magic = Magic_hvm | Magic_pv
++type core_header = {
++  xch_magic : core_magic;
++  xch_nr_vcpus : int;
++  xch_nr_pages : nativeint;
++  xch_index_offset : int64;
++  xch_ctxt_offset : int64;
++  xch_pages_offset : int64;
++}
++external marshall_core_header : core_header -> string
++  = "stub_marshall_core_header"
++val coredump : handle -> domid -> Unix.file_descr -> unit
++external pages_to_kib : int64 -> int64 = "stub_pages_to_kib"
++val pages_to_mib : int64 -> int64
++external watchdog : handle -> int -> int32 -> int
++  = "stub_xc_watchdog"
++
++external domain_set_machine_address_size: handle -> domid -> int -> unit
++  = "stub_xc_domain_set_machine_address_size"
++external domain_get_machine_address_size: handle -> domid -> int
++       = "stub_xc_domain_get_machine_address_size"
++
++external domain_cpuid_set: handle -> domid -> (int64 * (int64 option))
++                        -> string option array
++                        -> string option array
++       = "stub_xc_domain_cpuid_set"
++external domain_cpuid_apply_policy: handle -> domid -> unit
++       = "stub_xc_domain_cpuid_apply_policy"
++external cpuid_check: handle -> (int64 * (int64 option)) -> string option array -> (bool * string option array)
++       = "stub_xc_cpuid_check"
++
+diff --git a/tools/ocaml/libs/xc/xc_stubs.c b/tools/ocaml/libs/xc/xenctrl_stubs.c
+rename from tools/ocaml/libs/xc/xc_stubs.c
+rename to tools/ocaml/libs/xc/xenctrl_stubs.c
+diff --git a/tools/ocaml/libs/xl/META.in b/tools/ocaml/libs/xl/META.in
+--- a/tools/ocaml/libs/xl/META.in
++++ b/tools/ocaml/libs/xl/META.in
+@@ -1,4 +1,4 @@
+ version = "@VERSION@"
+ description = "Xen Toolstack Library"
+-archive(byte) = "xl.cma"
+-archive(native) = "xl.cmxa"
++archive(byte) = "xenlight.cma"
++archive(native) = "xenlight.cmxa"
+diff --git a/tools/ocaml/libs/xl/Makefile b/tools/ocaml/libs/xl/Makefile
+--- a/tools/ocaml/libs/xl/Makefile
++++ b/tools/ocaml/libs/xl/Makefile
+@@ -2,14 +2,14 @@ TOPLEVEL=$(CURDIR)/../..
+ XEN_ROOT=$(TOPLEVEL)/../..
+ include $(TOPLEVEL)/common.make
+ 
+-OBJS = xl
+-INTF = xl.cmi
+-LIBS = xl.cma xl.cmxa
++OBJS = xenlight
++INTF = xenlight.cmi
++LIBS = xenlight.cma xenlight.cmxa
+ 
+-xl_OBJS = $(OBJS)
+-xl_C_OBJS = xl_stubs
++xenlight_OBJS = $(OBJS)
++xenlight_C_OBJS = xenlight_stubs
+ 
+-OCAML_LIBRARY = xl
++OCAML_LIBRARY = xenlight
+ 
+ all: $(INTF) $(LIBS)
+ 
+@@ -18,11 +18,11 @@ libs: $(LIBS)
+ .PHONY: install
+ install: $(LIBS) META
+ 	mkdir -p $(OCAMLDESTDIR)
+-	ocamlfind remove -destdir $(OCAMLDESTDIR) xl
+-	ocamlfind install -destdir $(OCAMLDESTDIR) -ldconf ignore xl META $(INTF) $(LIBS) *.a *.so *.cmx
++	ocamlfind remove -destdir $(OCAMLDESTDIR) xenlight
++	ocamlfind install -destdir $(OCAMLDESTDIR) -ldconf ignore xenlight META $(INTF) $(LIBS) *.a *.so *.cmx
+ 
+ .PHONY: uninstall
+ uninstall:
+-	ocamlfind remove -destdir $(OCAMLDESTDIR) xl
++	ocamlfind remove -destdir $(OCAMLDESTDIR) xenlight
+ 
+ include $(TOPLEVEL)/Makefile.rules
+diff --git a/tools/ocaml/libs/xl/xenlight.ml b/tools/ocaml/libs/xl/xenlight.ml
+new file mode 100644
+--- /dev/null
++++ b/tools/ocaml/libs/xl/xenlight.ml
+@@ -0,0 +1,213 @@
++(*
++ * Copyright (C) 2009-2010 Citrix Ltd.
++ * Author Vincent Hanquez <vincent.hanquez@eu.citrix.com>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU Lesser General Public License as published
++ * by the Free Software Foundation; version 2.1 only. with the special
++ * exception on linking described in file LICENSE.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU Lesser General Public License for more details.
++ *)
++
++exception Error of string
++
++type create_info =
++{
++	hvm : bool;
++	hap : bool;
++	oos : bool;
++	ssidref : int32;
++	name : string;
++	uuid : int array;
++	xsdata : (string * string) list;
++	platformdata : (string * string) list;
++	poolid : int32;
++	poolname : string;
++}
++
++type build_pv_info =
++{
++	slack_memkb : int64;
++	cmdline : string;
++	ramdisk : string;
++	features : string;
++}
++
++type build_hvm_info =
++{
++	pae : bool;
++	apic : bool;
++	acpi : bool;
++	nx : bool;
++	viridian : bool;
++	timeoffset : string;
++	timer_mode : int;
++	hpet : int;
++	vpt_align : int;
++}
++
++type build_spec = BuildHVM of build_hvm_info | BuildPV of build_pv_info
++
++type build_info =
++{
++	max_vcpus : int;
++	cur_vcpus : int;
++	max_memkb : int64;
++	target_memkb : int64;
++	video_memkb : int64;
++	shadow_memkb : int64;
++	kernel : string;
++	priv: build_spec;
++}
++
++type build_state =
++{
++	store_port : int;
++	store_mfn : int64;
++	console_port : int;
++	console_mfn : int64;
++}
++
++type domid = int
++
++type disk_phystype =
++	| PHYSTYPE_QCOW
++	| PHYSTYPE_QCOW2
++	| PHYSTYPE_VHD
++	| PHYSTYPE_AIO
++	| PHYSTYPE_FILE
++	| PHYSTYPE_PHY
++
++type disk_info =
++{
++	backend_domid : domid;
++	physpath : string;
++	phystype : disk_phystype;
++	virtpath : string;
++	unpluggable : bool;
++	readwrite : bool;
++	is_cdrom : bool;
++}
++
++type nic_type =
++	| NICTYPE_IOEMU
++	| NICTYPE_VIF
++
++type nic_info =
++{
++	backend_domid : domid;
++	devid : int;
++	mtu : int;
++	model : string;
++	mac : int array;
++	bridge : string;
++	ifname : string;
++	script : string;
++	nictype : nic_type;
++}
++
++type console_type =
++	| CONSOLETYPE_XENCONSOLED
++	| CONSOLETYPE_IOEMU
++
++type console_info =
++{
++	backend_domid : domid;
++	devid : int;
++	consoletype : console_type;
++}
++
++type vkb_info =
++{
++	backend_domid : domid;
++	devid : int;
++}
++
++type vfb_info =
++{
++	backend_domid : domid;
++	devid : int;
++	vnc : bool;
++	vnclisten : string;
++	vncpasswd : string;
++	vncdisplay : int;
++	vncunused : bool;
++	keymap : string;
++	sdl : bool;
++	opengl : bool;
++	display : string;
++	xauthority : string;
++}
++
++type pci_info =
++{
++	v : int; (* domain * bus * dev * func multiplexed *)
++	domain : int;
++	vdevfn : int;
++	msitranslate : bool;
++	power_mgmt : bool;
++}
++
++type physinfo =
++{
++	threads_per_core: int;
++	cores_per_socket: int;
++	max_cpu_id: int;
++	nr_cpus: int;
++	cpu_khz: int;
++	total_pages: int64;
++	free_pages: int64;
++	scrub_pages: int64;
++	nr_nodes: int;
++	hwcap: int32 array;
++	physcap: int32;
++}
++
++type sched_credit =
++{
++	weight: int;
++	cap: int;
++}
++
++external domain_make : create_info -> domid = "stub_xl_domain_make"
++external domain_build : build_info -> domid -> build_state = "stub_xl_domain_build"
++
++external disk_add : disk_info -> domid -> unit = "stub_xl_disk_add"
++external disk_remove : disk_info -> domid -> unit = "stub_xl_disk_remove"
++
++external nic_add : nic_info -> domid -> unit = "stub_xl_nic_add"
++external nic_remove : disk_info -> domid -> unit = "stub_xl_nic_remove"
++
++external console_add : console_info -> build_state -> domid -> unit = "stub_xl_console_add"
++
++external vkb_add : vkb_info -> domid -> unit = "stub_xl_vkb_add"
++external vkb_clean_shutdown : domid -> unit = "stub_vkb_clean_shutdown"
++external vkb_hard_shutdown : domid -> unit = "stub_vkb_hard_shutdown"
++
++external vfb_add : vfb_info -> domid -> unit = "stub_xl_vfb_add"
++external vfb_clean_shutdown : domid -> unit = "stub_vfb_clean_shutdown"
++external vfb_hard_shutdown : domid -> unit = "stub_vfb_hard_shutdown"
++
++external pci_add : pci_info -> domid -> unit = "stub_xl_pci_add"
++external pci_remove : pci_info -> domid -> unit = "stub_xl_pci_remove"
++external pci_shutdown : domid -> unit = "stub_xl_pci_shutdown"
++
++type button =
++	| Button_Power
++	| Button_Sleep
++
++external button_press : domid -> button -> unit = "stub_xl_button_press"
++external physinfo : unit -> physinfo = "stub_xl_physinfo"
++
++external domain_sched_credit_get : domid -> sched_credit = "stub_xl_sched_credit_domain_get"
++external domain_sched_credit_set : domid -> sched_credit -> unit = "stub_xl_sched_credit_domain_set"
++
++external send_trigger : domid -> string -> int -> unit = "stub_xl_send_trigger"
++external send_sysrq : domid -> char -> unit = "stub_xl_send_sysrq"
++external send_debug_keys : domid -> string -> unit = "stub_xl_send_debug_keys"
++
++let _ = Callback.register_exception "xl.error" (Error "register_callback")
+diff --git a/tools/ocaml/libs/xl/xenlight.mli b/tools/ocaml/libs/xl/xenlight.mli
+new file mode 100644
+--- /dev/null
++++ b/tools/ocaml/libs/xl/xenlight.mli
+@@ -0,0 +1,211 @@
++(*
++ * Copyright (C) 2009-2010 Citrix Ltd.
++ * Author Vincent Hanquez <vincent.hanquez@eu.citrix.com>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU Lesser General Public License as published
++ * by the Free Software Foundation; version 2.1 only. with the special
++ * exception on linking described in file LICENSE.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU Lesser General Public License for more details.
++ *)
++
++exception Error of string
++
++type create_info =
++{
++	hvm : bool;
++	hap : bool;
++	oos : bool;
++	ssidref : int32;
++	name : string;
++	uuid : int array;
++	xsdata : (string * string) list;
++	platformdata : (string * string) list;
++	poolid : int32;
++	poolname : string;
++}
++
++type build_pv_info =
++{
++	slack_memkb : int64;
++	cmdline : string;
++	ramdisk : string;
++	features : string;
++}
++
++type build_hvm_info =
++{
++	pae : bool;
++	apic : bool;
++	acpi : bool;
++	nx : bool;
++	viridian : bool;
++	timeoffset : string;
++	timer_mode : int;
++	hpet : int;
++	vpt_align : int;
++}
++
++type build_spec = BuildHVM of build_hvm_info | BuildPV of build_pv_info
++
++type build_info =
++{
++	max_vcpus : int;
++	cur_vcpus : int;
++	max_memkb : int64;
++	target_memkb : int64;
++	video_memkb : int64;
++	shadow_memkb : int64;
++	kernel : string;
++	priv: build_spec;
++}
++
++type build_state =
++{
++	store_port : int;
++	store_mfn : int64;
++	console_port : int;
++	console_mfn : int64;
++}
++
++type domid = int
++
++type disk_phystype =
++	| PHYSTYPE_QCOW
++	| PHYSTYPE_QCOW2
++	| PHYSTYPE_VHD
++	| PHYSTYPE_AIO
++	| PHYSTYPE_FILE
++	| PHYSTYPE_PHY
++
++type disk_info =
++{
++	backend_domid : domid;
++	physpath : string;
++	phystype : disk_phystype;
++	virtpath : string;
++	unpluggable : bool;
++	readwrite : bool;
++	is_cdrom : bool;
++}
++
++type nic_type =
++	| NICTYPE_IOEMU
++	| NICTYPE_VIF
++
++type nic_info =
++{
++	backend_domid : domid;
++	devid : int;
++	mtu : int;
++	model : string;
++	mac : int array;
++	bridge : string;
++	ifname : string;
++	script : string;
++	nictype : nic_type;
++}
++
++type console_type =
++	| CONSOLETYPE_XENCONSOLED
++	| CONSOLETYPE_IOEMU
++
++type console_info =
++{
++	backend_domid : domid;
++	devid : int;
++	consoletype : console_type;
++}
++
++type vkb_info =
++{
++	backend_domid : domid;
++	devid : int;
++}
++
++type vfb_info =
++{
++	backend_domid : domid;
++	devid : int;
++	vnc : bool;
++	vnclisten : string;
++	vncpasswd : string;
++	vncdisplay : int;
++	vncunused : bool;
++	keymap : string;
++	sdl : bool;
++	opengl : bool;
++	display : string;
++	xauthority : string;
++}
++
++type pci_info =
++{
++	v : int; (* domain * bus * dev * func multiplexed *)
++	domain : int;
++	vdevfn : int;
++	msitranslate : bool;
++	power_mgmt : bool;
++}
++
++type physinfo =
++{
++	threads_per_core: int;
++	cores_per_socket: int;
++	max_cpu_id: int;
++	nr_cpus: int;
++	cpu_khz: int;
++	total_pages: int64;
++	free_pages: int64;
++	scrub_pages: int64;
++	nr_nodes: int;
++	hwcap: int32 array;
++	physcap: int32;
++}
++
++type sched_credit =
++{
++	weight: int;
++	cap: int;
++}
++
++external domain_make : create_info -> domid = "stub_xl_domain_make"
++external domain_build : build_info -> domid -> build_state = "stub_xl_domain_build"
++
++external disk_add : disk_info -> domid -> unit = "stub_xl_disk_add"
++external disk_remove : disk_info -> domid -> unit = "stub_xl_disk_remove"
++
++external nic_add : nic_info -> domid -> unit = "stub_xl_nic_add"
++external nic_remove : disk_info -> domid -> unit = "stub_xl_nic_remove"
++
++external console_add : console_info -> build_state -> domid -> unit = "stub_xl_console_add"
++
++external vkb_add : vkb_info -> domid -> unit = "stub_xl_vkb_add"
++external vkb_clean_shutdown : domid -> unit = "stub_vkb_clean_shutdown"
++external vkb_hard_shutdown : domid -> unit = "stub_vkb_hard_shutdown"
++
++external vfb_add : vfb_info -> domid -> unit = "stub_xl_vfb_add"
++external vfb_clean_shutdown : domid -> unit = "stub_vfb_clean_shutdown"
++external vfb_hard_shutdown : domid -> unit = "stub_vfb_hard_shutdown"
++
++external pci_add : pci_info -> domid -> unit = "stub_xl_pci_add"
++external pci_remove : pci_info -> domid -> unit = "stub_xl_pci_remove"
++external pci_shutdown : domid -> unit = "stub_xl_pci_shutdown"
++
++type button =
++	| Button_Power
++	| Button_Sleep
++
++external button_press : domid -> button -> unit = "stub_xl_button_press"
++external physinfo : unit -> physinfo = "stub_xl_physinfo"
++
++external domain_sched_credit_get : domid -> sched_credit = "stub_xl_sched_credit_domain_get"
++external domain_sched_credit_set : domid -> sched_credit -> unit = "stub_xl_sched_credit_domain_set"
++
++external send_trigger : domid -> string -> int -> unit = "stub_xl_send_trigger"
++external send_sysrq : domid -> char -> unit = "stub_xl_send_sysrq"
++external send_debug_keys : domid -> string -> unit = "stub_xl_send_debug_keys"
+diff --git a/tools/ocaml/libs/xl/xenlight_stubs.c b/tools/ocaml/libs/xl/xenlight_stubs.c
+new file mode 100644
+--- /dev/null
++++ b/tools/ocaml/libs/xl/xenlight_stubs.c
+@@ -0,0 +1,729 @@
++/*
++ * Copyright (C) 2009-2010 Citrix Ltd.
++ * Author Vincent Hanquez <vincent.hanquez@eu.citrix.com>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU Lesser General Public License as published
++ * by the Free Software Foundation; version 2.1 only. with the special
++ * exception on linking described in file LICENSE.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU Lesser General Public License for more details.
++ */
++
++#include <stdlib.h>
++
++#define CAML_NAME_SPACE
++#include <caml/alloc.h>
++#include <caml/memory.h>
++#include <caml/signals.h>
++#include <caml/fail.h>
++#include <caml/callback.h>
++
++#include <sys/mman.h>
++#include <stdint.h>
++#include <string.h>
++
++#include "libxl.h"
++
++struct caml_logger {
++	struct xentoollog_logger logger;
++	int log_offset;
++	char log_buf[2048];
++};
++
++typedef struct caml_gc {
++	int offset;
++	void *ptrs[64];
++} caml_gc;
++
++void log_vmessage(struct xentoollog_logger *logger, xentoollog_level level,
++                  int errnoval, const char *context, const char *format, va_list al)
++{
++	struct caml_logger *ologger = (struct caml_logger *) logger;
++
++	ologger->log_offset += vsnprintf(ologger->log_buf + ologger->log_offset,
++	                                 2048 - ologger->log_offset, format, al);
++}
++
++void log_destroy(struct xentoollog_logger *logger)
++{
++}
++
++#define INIT_STRUCT() libxl_ctx ctx; struct caml_logger lg; struct caml_gc gc; gc.offset = 0;
++
++#define INIT_CTX()  \
++	lg.logger.vmessage = log_vmessage; \
++	lg.logger.destroy = log_destroy; \
++	lg.logger.progress = NULL; \
++	caml_enter_blocking_section(); \
++	ret = libxl_ctx_init(&ctx, LIBXL_VERSION, (struct xentoollog_logger *) &lg); \
++	if (ret != 0) \
++		failwith_xl("cannot init context", &lg);
++
++#define FREE_CTX()  \
++	gc_free(&gc); \
++	caml_leave_blocking_section(); \
++	libxl_ctx_free(&ctx)
++
++static char * dup_String_val(caml_gc *gc, value s)
++{
++	int len;
++	char *c;
++	len = caml_string_length(s);
++	c = calloc(len + 1, sizeof(char));
++	if (!c)
++		caml_raise_out_of_memory();
++	gc->ptrs[gc->offset++] = c;
++	memcpy(c, String_val(s), len);
++	return c;
++}
++
++static void gc_free(caml_gc *gc)
++{
++	int i;
++	for (i = 0; i < gc->offset; i++) {
++		free(gc->ptrs[i]);
++	}
++}
++
++void failwith_xl(char *fname, struct caml_logger *lg)
++{
++	char *s;
++	s = (lg) ? lg->log_buf : fname;
++	caml_raise_with_string(*caml_named_value("xl.error"), s);
++}
++
++#if 0 /* TODO: wrap libxl_domain_create(), these functions will be needed then */
++static void * gc_calloc(caml_gc *gc, size_t nmemb, size_t size)
++{
++	void *ptr;
++	ptr = calloc(nmemb, size);
++	if (!ptr)
++		caml_raise_out_of_memory();
++	gc->ptrs[gc->offset++] = ptr;
++	return ptr;
++}
++
++static int string_string_tuple_array_val (caml_gc *gc, char ***c_val, value v)
++{
++	CAMLparam1(v);
++	CAMLlocal1(a);
++	int i;
++	char **array;
++
++	for (i = 0, a = Field(v, 5); a != Val_emptylist; a = Field(a, 1)) { i++; }
++
++	array = gc_calloc(gc, (i + 1) * 2, sizeof(char *));
++	if (!array)
++		return 1;
++	for (i = 0, a = Field(v, 5); a != Val_emptylist; a = Field(a, 1), i++) {
++		value b = Field(a, 0);
++		array[i * 2] = dup_String_val(gc, Field(b, 0));
++		array[i * 2 + 1] = dup_String_val(gc, Field(b, 1));
++	}
++	*c_val = array;
++	CAMLreturn(0);
++}
++
++static int domain_create_info_val (caml_gc *gc, libxl_domain_create_info *c_val, value v)
++{
++	CAMLparam1(v);
++	CAMLlocal1(a);
++	uint8_t *uuid = libxl_uuid_bytearray(&c_val->uuid);
++	int i;
++
++	c_val->hvm = Bool_val(Field(v, 0));
++	c_val->hap = Bool_val(Field(v, 1));
++	c_val->oos = Bool_val(Field(v, 2));
++	c_val->ssidref = Int32_val(Field(v, 3));
++	c_val->name = dup_String_val(gc, Field(v, 4));
++	a = Field(v, 5);
++	for (i = 0; i < 16; i++)
++		uuid[i] = Int_val(Field(a, i));
++	string_string_tuple_array_val(gc, &(c_val->xsdata), Field(v, 6));
++	string_string_tuple_array_val(gc, &(c_val->platformdata), Field(v, 7));
++
++	c_val->poolid = Int32_val(Field(v, 8));
++	c_val->poolname = dup_String_val(gc, Field(v, 9));
++
++	CAMLreturn(0);
++}
++
++static int domain_build_info_val (caml_gc *gc, libxl_domain_build_info *c_val, value v)
++{
++	CAMLparam1(v);
++	CAMLlocal1(infopriv);
++
++	c_val->max_vcpus = Int_val(Field(v, 0));
++	c_val->cur_vcpus = Int_val(Field(v, 1));
++	c_val->max_memkb = Int64_val(Field(v, 2));
++	c_val->target_memkb = Int64_val(Field(v, 3));
++	c_val->video_memkb = Int64_val(Field(v, 4));
++	c_val->shadow_memkb = Int64_val(Field(v, 5));
++	c_val->kernel.path = dup_String_val(gc, Field(v, 6));
++	c_val->is_hvm = Tag_val(Field(v, 7)) == 0;
++	infopriv = Field(Field(v, 7), 0);
++	if (c_val->hvm) {
++		c_val->u.hvm.pae = Bool_val(Field(infopriv, 0));
++		c_val->u.hvm.apic = Bool_val(Field(infopriv, 1));
++		c_val->u.hvm.acpi = Bool_val(Field(infopriv, 2));
++		c_val->u.hvm.nx = Bool_val(Field(infopriv, 3));
++		c_val->u.hvm.viridian = Bool_val(Field(infopriv, 4));
++		c_val->u.hvm.timeoffset = dup_String_val(gc, Field(infopriv, 5));
++		c_val->u.hvm.timer_mode = Int_val(Field(infopriv, 6));
++		c_val->u.hvm.hpet = Int_val(Field(infopriv, 7));
++		c_val->u.hvm.vpt_align = Int_val(Field(infopriv, 8));
++	} else {
++		c_val->u.pv.slack_memkb = Int64_val(Field(infopriv, 0));
++		c_val->u.pv.cmdline = dup_String_val(gc, Field(infopriv, 1));
++		c_val->u.pv.ramdisk.path = dup_String_val(gc, Field(infopriv, 2));
++		c_val->u.pv.features = dup_String_val(gc, Field(infopriv, 3));
++	}
++
++	CAMLreturn(0);
++}
++#endif
++
++static int device_disk_val(caml_gc *gc, libxl_device_disk *c_val, value v)
++{
++	CAMLparam1(v);
++
++	c_val->backend_domid = Int_val(Field(v, 0));
++	c_val->pdev_path = dup_String_val(gc, Field(v, 1));
++	c_val->vdev = dup_String_val(gc, Field(v, 2));
++        c_val->backend = (Int_val(Field(v, 3)));
++        c_val->format = (Int_val(Field(v, 4)));
++	c_val->unpluggable = Bool_val(Field(v, 5));
++	c_val->readwrite = Bool_val(Field(v, 6));
++	c_val->is_cdrom = Bool_val(Field(v, 7));
++
++	CAMLreturn(0);
++}
++
++static int device_nic_val(caml_gc *gc, libxl_device_nic *c_val, value v)
++{
++	CAMLparam1(v);
++	int i;
++	int ret = 0;
++	c_val->backend_domid = Int_val(Field(v, 0));
++	c_val->devid = Int_val(Field(v, 1));
++	c_val->mtu = Int_val(Field(v, 2));
++	c_val->model = dup_String_val(gc, Field(v, 3));
++
++	if (Wosize_val(Field(v, 4)) != 6) {
++		ret = 1;
++		goto out;
++	}
++	for (i = 0; i < 6; i++)
++		c_val->mac[i] = Int_val(Field(Field(v, 4), i));
++
++	/* not handling c_val->ip */
++	c_val->bridge = dup_String_val(gc, Field(v, 5));
++	c_val->ifname = dup_String_val(gc, Field(v, 6));
++	c_val->script = dup_String_val(gc, Field(v, 7));
++	c_val->nictype = (Int_val(Field(v, 8))) + NICTYPE_IOEMU;
++
++out:
++	CAMLreturn(ret);
++}
++
++static int device_console_val(caml_gc *gc, libxl_device_console *c_val, value v)
++{
++	CAMLparam1(v);
++
++	c_val->backend_domid = Int_val(Field(v, 0));
++	c_val->devid = Int_val(Field(v, 1));
++	c_val->consback = (Int_val(Field(v, 2))) + LIBXL_CONSBACK_XENCONSOLED;
++
++	CAMLreturn(0);
++}
++
++static int device_vkb_val(caml_gc *gc, libxl_device_vkb *c_val, value v)
++{
++	CAMLparam1(v);
++
++	c_val->backend_domid = Int_val(Field(v, 0));
++	c_val->devid = Int_val(Field(v, 1));
++
++	CAMLreturn(0);
++}
++
++static int device_vfb_val(caml_gc *gc, libxl_device_vfb *c_val, value v)
++{
++	CAMLparam1(v);
++
++	c_val->backend_domid = Int_val(Field(v, 0));
++	c_val->devid = Int_val(Field(v, 1));
++	c_val->vnc = Bool_val(Field(v, 2));
++	c_val->vnclisten = dup_String_val(gc, Field(v, 3));
++	c_val->vncpasswd = dup_String_val(gc, Field(v, 4));
++	c_val->vncdisplay = Int_val(Field(v, 5));
++	c_val->keymap = dup_String_val(gc, Field(v, 6));
++	c_val->sdl = Bool_val(Field(v, 7));
++	c_val->opengl = Bool_val(Field(v, 8));
++	c_val->display = dup_String_val(gc, Field(v, 9));
++	c_val->xauthority = dup_String_val(gc, Field(v, 10));
++
++	CAMLreturn(0);
++}
++
++static int device_pci_val(caml_gc *gc, libxl_device_pci *c_val, value v)
++{
++	union {
++		unsigned int value;
++		struct {
++			unsigned int reserved1:2;
++			unsigned int reg:6;
++			unsigned int func:3;
++			unsigned int dev:5;
++			unsigned int bus:8;
++			unsigned int reserved2:7;
++			unsigned int enable:1;
++		}fields;
++	}u;
++	CAMLparam1(v);
++
++	/* FIXME: propagate API change to ocaml */
++	u.value = Int_val(Field(v, 0));
++	c_val->reg = u.fields.reg;
++	c_val->func = u.fields.func;
++	c_val->dev = u.fields.dev;
++	c_val->bus = u.fields.bus;
++	c_val->enable = u.fields.enable;
++
++	c_val->domain = Int_val(Field(v, 1));
++	c_val->vdevfn = Int_val(Field(v, 2));
++	c_val->msitranslate = Bool_val(Field(v, 3));
++	c_val->power_mgmt = Bool_val(Field(v, 4));
++
++	CAMLreturn(0);
++}
++
++static int sched_credit_val(caml_gc *gc, libxl_sched_credit *c_val, value v)
++{
++	CAMLparam1(v);
++	c_val->weight = Int_val(Field(v, 0));
++	c_val->cap = Int_val(Field(v, 1));
++	CAMLreturn(0);
++}
++
++static int domain_build_state_val(caml_gc *gc, libxl_domain_build_state *c_val, value v)
++{
++	CAMLparam1(v);
++
++	c_val->store_port = Int_val(Field(v, 0));
++	c_val->store_mfn = Int64_val(Field(v, 1));
++	c_val->console_port = Int_val(Field(v, 2));
++	c_val->console_mfn = Int64_val(Field(v, 3));
++	
++	CAMLreturn(0);
++}
++
++static value Val_sched_credit(libxl_sched_credit *c_val)
++{
++	CAMLparam0();
++	CAMLlocal1(v);
++
++	v = caml_alloc_tuple(2);
++
++	Store_field(v, 0, Val_int(c_val->weight));
++	Store_field(v, 1, Val_int(c_val->cap));
++
++	CAMLreturn(v);
++}
++
++static value Val_physinfo(libxl_physinfo *c_val)
++{
++	CAMLparam0();
++	CAMLlocal2(v, hwcap);
++	int i;
++
++	hwcap = caml_alloc_tuple(8);
++	for (i = 0; i < 8; i++)
++		Store_field(hwcap, i, caml_copy_int32(c_val->hw_cap[i]));
++
++	v = caml_alloc_tuple(11);
++	Store_field(v, 0, Val_int(c_val->threads_per_core));
++	Store_field(v, 1, Val_int(c_val->cores_per_socket));
++	Store_field(v, 2, Val_int(c_val->max_cpu_id));
++	Store_field(v, 3, Val_int(c_val->nr_cpus));
++	Store_field(v, 4, Val_int(c_val->cpu_khz));
++	Store_field(v, 5, caml_copy_int64(c_val->total_pages));
++	Store_field(v, 6, caml_copy_int64(c_val->free_pages));
++	Store_field(v, 7, caml_copy_int64(c_val->scrub_pages));
++	Store_field(v, 8, Val_int(c_val->nr_nodes));
++	Store_field(v, 9, hwcap);
++	Store_field(v, 10, caml_copy_int32(c_val->phys_cap));
++
++	CAMLreturn(v);
++}
++
++value stub_xl_disk_add(value info, value domid)
++{
++	CAMLparam2(info, domid);
++	libxl_device_disk c_info;
++	int ret;
++	INIT_STRUCT();
++
++	device_disk_val(&gc, &c_info, info);
++	c_info.domid = Int_val(domid);
++
++	INIT_CTX();
++	ret = libxl_device_disk_add(&ctx, Int_val(domid), &c_info);
++	if (ret != 0)
++		failwith_xl("disk_add", &lg);
++	FREE_CTX();
++	CAMLreturn(Val_unit);
++}
++
++value stub_xl_disk_remove(value info, value domid)
++{
++	CAMLparam2(info, domid);
++	libxl_device_disk c_info;
++	int ret;
++	INIT_STRUCT();
++
++	device_disk_val(&gc, &c_info, info);
++	c_info.domid = Int_val(domid);
++
++	INIT_CTX();
++	ret = libxl_device_disk_del(&ctx, &c_info, 0);
++	if (ret != 0)
++		failwith_xl("disk_remove", &lg);
++	FREE_CTX();
++	CAMLreturn(Val_unit);
++}
++
++value stub_xl_nic_add(value info, value domid)
++{
++	CAMLparam2(info, domid);
++	libxl_device_nic c_info;
++	int ret;
++	INIT_STRUCT();
++
++	device_nic_val(&gc, &c_info, info);
++	c_info.domid = Int_val(domid);
++
++	INIT_CTX();
++	ret = libxl_device_nic_add(&ctx, Int_val(domid), &c_info);
++	if (ret != 0)
++		failwith_xl("nic_add", &lg);
++	FREE_CTX();
++	CAMLreturn(Val_unit);
++}
++
++value stub_xl_nic_remove(value info, value domid)
++{
++	CAMLparam2(info, domid);
++	libxl_device_nic c_info;
++	int ret;
++	INIT_STRUCT();
++
++	device_nic_val(&gc, &c_info, info);
++	c_info.domid = Int_val(domid);
++
++	INIT_CTX();
++	ret = libxl_device_nic_del(&ctx, &c_info, 0);
++	if (ret != 0)
++		failwith_xl("nic_remove", &lg);
++	FREE_CTX();
++	CAMLreturn(Val_unit);
++}
++
++value stub_xl_console_add(value info, value state, value domid)
++{
++	CAMLparam3(info, state, domid);
++	libxl_device_console c_info;
++	libxl_domain_build_state c_state;
++	int ret;
++	INIT_STRUCT();
++
++	device_console_val(&gc, &c_info, info);
++	domain_build_state_val(&gc, &c_state, state);
++	c_info.domid = Int_val(domid);
++	c_info.build_state = &c_state;
++
++	INIT_CTX();
++	ret = libxl_device_console_add(&ctx, Int_val(domid), &c_info);
++	if (ret != 0)
++		failwith_xl("console_add", &lg);
++	FREE_CTX();
++	CAMLreturn(Val_unit);
++}
++
++value stub_xl_vkb_add(value info, value domid)
++{
++	CAMLparam2(info, domid);
++	libxl_device_vkb c_info;
++	int ret;
++	INIT_STRUCT();
++
++	device_vkb_val(&gc, &c_info, info);
++	c_info.domid = Int_val(domid);
++
++	INIT_CTX();
++	ret = libxl_device_vkb_add(&ctx, Int_val(domid), &c_info);
++	if (ret != 0)
++		failwith_xl("vkb_add", &lg);
++	FREE_CTX();
++	
++	CAMLreturn(Val_unit);
++}
++
++value stub_xl_vkb_clean_shutdown(value domid)
++{
++	CAMLparam1(domid);
++	int ret;
++	INIT_STRUCT();
++
++	INIT_CTX();
++	ret = libxl_device_vkb_clean_shutdown(&ctx, Int_val(domid));
++	if (ret != 0)
++		failwith_xl("vkb_clean_shutdown", &lg);
++	FREE_CTX();
++	
++	CAMLreturn(Val_unit);
++}
++
++value stub_xl_vkb_hard_shutdown(value domid)
++{
++	CAMLparam1(domid);
++	int ret;
++	INIT_STRUCT();
++
++	INIT_CTX();
++	ret = libxl_device_vkb_hard_shutdown(&ctx, Int_val(domid));
++	if (ret != 0)
++		failwith_xl("vkb_hard_shutdown", &lg);
++	FREE_CTX();
++	
++	CAMLreturn(Val_unit);
++}
++
++value stub_xl_vfb_add(value info, value domid)
++{
++	CAMLparam2(info, domid);
++	libxl_device_vfb c_info;
++	int ret;
++	INIT_STRUCT();
++
++	device_vfb_val(&gc, &c_info, info);
++	c_info.domid = Int_val(domid);
++
++	INIT_CTX();
++	ret = libxl_device_vfb_add(&ctx, Int_val(domid), &c_info);
++	if (ret != 0)
++		failwith_xl("vfb_add", &lg);
++	FREE_CTX();
++	
++	CAMLreturn(Val_unit);
++}
++
++value stub_xl_vfb_clean_shutdown(value domid)
++{
++	CAMLparam1(domid);
++	int ret;
++	INIT_STRUCT();
++
++	INIT_CTX();
++	ret = libxl_device_vfb_clean_shutdown(&ctx, Int_val(domid));
++	if (ret != 0)
++		failwith_xl("vfb_clean_shutdown", &lg);
++	FREE_CTX();
++	
++	CAMLreturn(Val_unit);
++}
++
++value stub_xl_vfb_hard_shutdown(value domid)
++{
++	CAMLparam1(domid);
++	int ret;
++	INIT_STRUCT();
++
++	INIT_CTX();
++	ret = libxl_device_vfb_hard_shutdown(&ctx, Int_val(domid));
++	if (ret != 0)
++		failwith_xl("vfb_hard_shutdown", &lg);
++	FREE_CTX();
++	
++	CAMLreturn(Val_unit);
++}
++
++value stub_xl_pci_add(value info, value domid)
++{
++	CAMLparam2(info, domid);
++	libxl_device_pci c_info;
++	int ret;
++	INIT_STRUCT();
++
++	device_pci_val(&gc, &c_info, info);
++
++	INIT_CTX();
++	ret = libxl_device_pci_add(&ctx, Int_val(domid), &c_info);
++	if (ret != 0)
++		failwith_xl("pci_add", &lg);
++	FREE_CTX();
++	
++	CAMLreturn(Val_unit);
++}
++
++value stub_xl_pci_remove(value info, value domid)
++{
++	CAMLparam2(info, domid);
++	libxl_device_pci c_info;
++	int ret;
++	INIT_STRUCT();
++
++	device_pci_val(&gc, &c_info, info);
++
++	INIT_CTX();
++	ret = libxl_device_pci_remove(&ctx, Int_val(domid), &c_info, 0);
++	if (ret != 0)
++		failwith_xl("pci_remove", &lg);
++	FREE_CTX();
++	
++	CAMLreturn(Val_unit);
++}
++
++value stub_xl_pci_shutdown(value domid)
++{
++	CAMLparam1(domid);
++	int ret;
++	INIT_STRUCT();
++
++	INIT_CTX();
++	ret = libxl_device_pci_shutdown(&ctx, Int_val(domid));
++	if (ret != 0)
++		failwith_xl("pci_shutdown", &lg);
++	FREE_CTX();
++	
++	CAMLreturn(Val_unit);
++}
++
++value stub_xl_button_press(value domid, value button)
++{
++	CAMLparam2(domid, button);
++	int ret;
++	INIT_STRUCT();
++	
++	INIT_CTX();
++	ret = libxl_button_press(&ctx, Int_val(domid), Int_val(button) + POWER_BUTTON);
++	if (ret != 0)
++		failwith_xl("button_press", &lg);
++	FREE_CTX();
++
++	CAMLreturn(Val_unit);
++}
++
++value stub_xl_physinfo(value unit)
++{
++	CAMLparam1(unit);
++	CAMLlocal1(physinfo);
++	libxl_physinfo c_physinfo;
++	int ret;
++	INIT_STRUCT();
++
++	INIT_CTX();
++	ret = libxl_get_physinfo(&ctx, &c_physinfo);
++	if (ret != 0)
++		failwith_xl("physinfo", &lg);
++	FREE_CTX();
++	
++	physinfo = Val_physinfo(&c_physinfo);
++	CAMLreturn(physinfo);
++}
++
++value stub_xl_sched_credit_domain_get(value domid)
++{
++	CAMLparam1(domid);
++	CAMLlocal1(scinfo);
++	libxl_sched_credit c_scinfo;
++	int ret;
++	INIT_STRUCT();
++
++	INIT_CTX();
++	ret = libxl_sched_credit_domain_get(&ctx, Int_val(domid), &c_scinfo);
++	if (ret != 0)
++		failwith_xl("sched_credit_domain_get", &lg);
++	FREE_CTX();
++	
++	scinfo = Val_sched_credit(&c_scinfo);
++	CAMLreturn(scinfo);
++}
++
++value stub_xl_sched_credit_domain_set(value domid, value scinfo)
++{
++	CAMLparam2(domid, scinfo);
++	libxl_sched_credit c_scinfo;
++	int ret;
++	INIT_STRUCT();
++
++	sched_credit_val(&gc, &c_scinfo, scinfo);
++
++	INIT_CTX();
++	ret = libxl_sched_credit_domain_set(&ctx, Int_val(domid), &c_scinfo);
++	if (ret != 0)
++		failwith_xl("sched_credit_domain_set", &lg);
++	FREE_CTX();
++	
++	CAMLreturn(Val_unit);
++}
++
++value stub_xl_send_trigger(value domid, value trigger, value vcpuid)
++{
++	CAMLparam3(domid, trigger, vcpuid);
++	int ret;
++	char *c_trigger;
++	INIT_STRUCT();
++
++	c_trigger = dup_String_val(&gc, trigger);
++
++	INIT_CTX();
++	ret = libxl_send_trigger(&ctx, Int_val(domid), c_trigger, Int_val(vcpuid));
++	if (ret != 0)
++		failwith_xl("send_trigger", &lg);
++	FREE_CTX();
++	CAMLreturn(Val_unit);
++}
++
++value stub_xl_send_sysrq(value domid, value sysrq)
++{
++	CAMLparam2(domid, sysrq);
++	int ret;
++	INIT_STRUCT();
++
++	INIT_CTX();
++	ret = libxl_send_sysrq(&ctx, Int_val(domid), Int_val(sysrq));
++	if (ret != 0)
++		failwith_xl("send_sysrq", &lg);
++	FREE_CTX();
++	CAMLreturn(Val_unit);
++}
++
++value stub_xl_send_debug_keys(value keys)
++{
++	CAMLparam1(keys);
++	int ret;
++	char *c_keys;
++	INIT_STRUCT();
++
++	c_keys = dup_String_val(&gc, keys);
++
++	INIT_CTX();
++	ret = libxl_send_debug_keys(&ctx, c_keys);
++	if (ret != 0)
++		failwith_xl("send_debug_keys", &lg);
++	FREE_CTX();
++	CAMLreturn(Val_unit);
++}
++
++/*
++ * Local variables:
++ *  indent-tabs-mode: t
++ *  c-basic-offset: 8
++ *  tab-width: 8
++ * End:
++ */
+diff --git a/tools/ocaml/libs/xl/xl.ml b/tools/ocaml/libs/xl/xl.ml
+deleted file mode 100644
+--- a/tools/ocaml/libs/xl/xl.ml
++++ /dev/null
+@@ -1,213 +0,0 @@
+-(*
+- * Copyright (C) 2009-2010 Citrix Ltd.
+- * Author Vincent Hanquez <vincent.hanquez@eu.citrix.com>
+- *
+- * This program is free software; you can redistribute it and/or modify
+- * it under the terms of the GNU Lesser General Public License as published
+- * by the Free Software Foundation; version 2.1 only. with the special
+- * exception on linking described in file LICENSE.
+- *
+- * This program is distributed in the hope that it will be useful,
+- * but WITHOUT ANY WARRANTY; without even the implied warranty of
+- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+- * GNU Lesser General Public License for more details.
+- *)
+-
+-exception Error of string
+-
+-type create_info =
+-{
+-	hvm : bool;
+-	hap : bool;
+-	oos : bool;
+-	ssidref : int32;
+-	name : string;
+-	uuid : int array;
+-	xsdata : (string * string) list;
+-	platformdata : (string * string) list;
+-	poolid : int32;
+-	poolname : string;
+-}
+-
+-type build_pv_info =
+-{
+-	slack_memkb : int64;
+-	cmdline : string;
+-	ramdisk : string;
+-	features : string;
+-}
+-
+-type build_hvm_info =
+-{
+-	pae : bool;
+-	apic : bool;
+-	acpi : bool;
+-	nx : bool;
+-	viridian : bool;
+-	timeoffset : string;
+-	timer_mode : int;
+-	hpet : int;
+-	vpt_align : int;
+-}
+-
+-type build_spec = BuildHVM of build_hvm_info | BuildPV of build_pv_info
+-
+-type build_info =
+-{
+-	max_vcpus : int;
+-	cur_vcpus : int;
+-	max_memkb : int64;
+-	target_memkb : int64;
+-	video_memkb : int64;
+-	shadow_memkb : int64;
+-	kernel : string;
+-	priv: build_spec;
+-}
+-
+-type build_state =
+-{
+-	store_port : int;
+-	store_mfn : int64;
+-	console_port : int;
+-	console_mfn : int64;
+-}
+-
+-type domid = int
+-
+-type disk_phystype =
+-	| PHYSTYPE_QCOW
+-	| PHYSTYPE_QCOW2
+-	| PHYSTYPE_VHD
+-	| PHYSTYPE_AIO
+-	| PHYSTYPE_FILE
+-	| PHYSTYPE_PHY
+-
+-type disk_info =
+-{
+-	backend_domid : domid;
+-	physpath : string;
+-	phystype : disk_phystype;
+-	virtpath : string;
+-	unpluggable : bool;
+-	readwrite : bool;
+-	is_cdrom : bool;
+-}
+-
+-type nic_type =
+-	| NICTYPE_IOEMU
+-	| NICTYPE_VIF
+-
+-type nic_info =
+-{
+-	backend_domid : domid;
+-	devid : int;
+-	mtu : int;
+-	model : string;
+-	mac : int array;
+-	bridge : string;
+-	ifname : string;
+-	script : string;
+-	nictype : nic_type;
+-}
+-
+-type console_type =
+-	| CONSOLETYPE_XENCONSOLED
+-	| CONSOLETYPE_IOEMU
+-
+-type console_info =
+-{
+-	backend_domid : domid;
+-	devid : int;
+-	consoletype : console_type;
+-}
+-
+-type vkb_info =
+-{
+-	backend_domid : domid;
+-	devid : int;
+-}
+-
+-type vfb_info =
+-{
+-	backend_domid : domid;
+-	devid : int;
+-	vnc : bool;
+-	vnclisten : string;
+-	vncpasswd : string;
+-	vncdisplay : int;
+-	vncunused : bool;
+-	keymap : string;
+-	sdl : bool;
+-	opengl : bool;
+-	display : string;
+-	xauthority : string;
+-}
+-
+-type pci_info =
+-{
+-	v : int; (* domain * bus * dev * func multiplexed *)
+-	domain : int;
+-	vdevfn : int;
+-	msitranslate : bool;
+-	power_mgmt : bool;
+-}
+-
+-type physinfo =
+-{
+-	threads_per_core: int;
+-	cores_per_socket: int;
+-	max_cpu_id: int;
+-	nr_cpus: int;
+-	cpu_khz: int;
+-	total_pages: int64;
+-	free_pages: int64;
+-	scrub_pages: int64;
+-	nr_nodes: int;
+-	hwcap: int32 array;
+-	physcap: int32;
+-}
+-
+-type sched_credit =
+-{
+-	weight: int;
+-	cap: int;
+-}
+-
+-external domain_make : create_info -> domid = "stub_xl_domain_make"
+-external domain_build : build_info -> domid -> build_state = "stub_xl_domain_build"
+-
+-external disk_add : disk_info -> domid -> unit = "stub_xl_disk_add"
+-external disk_remove : disk_info -> domid -> unit = "stub_xl_disk_remove"
+-
+-external nic_add : nic_info -> domid -> unit = "stub_xl_nic_add"
+-external nic_remove : disk_info -> domid -> unit = "stub_xl_nic_remove"
+-
+-external console_add : console_info -> build_state -> domid -> unit = "stub_xl_console_add"
+-
+-external vkb_add : vkb_info -> domid -> unit = "stub_xl_vkb_add"
+-external vkb_clean_shutdown : domid -> unit = "stub_vkb_clean_shutdown"
+-external vkb_hard_shutdown : domid -> unit = "stub_vkb_hard_shutdown"
+-
+-external vfb_add : vfb_info -> domid -> unit = "stub_xl_vfb_add"
+-external vfb_clean_shutdown : domid -> unit = "stub_vfb_clean_shutdown"
+-external vfb_hard_shutdown : domid -> unit = "stub_vfb_hard_shutdown"
+-
+-external pci_add : pci_info -> domid -> unit = "stub_xl_pci_add"
+-external pci_remove : pci_info -> domid -> unit = "stub_xl_pci_remove"
+-external pci_shutdown : domid -> unit = "stub_xl_pci_shutdown"
+-
+-type button =
+-	| Button_Power
+-	| Button_Sleep
+-
+-external button_press : domid -> button -> unit = "stub_xl_button_press"
+-external physinfo : unit -> physinfo = "stub_xl_physinfo"
+-
+-external domain_sched_credit_get : domid -> sched_credit = "stub_xl_sched_credit_domain_get"
+-external domain_sched_credit_set : domid -> sched_credit -> unit = "stub_xl_sched_credit_domain_set"
+-
+-external send_trigger : domid -> string -> int -> unit = "stub_xl_send_trigger"
+-external send_sysrq : domid -> char -> unit = "stub_xl_send_sysrq"
+-external send_debug_keys : domid -> string -> unit = "stub_xl_send_debug_keys"
+-
+-let _ = Callback.register_exception "xl.error" (Error "register_callback")
+diff --git a/tools/ocaml/libs/xl/xl.mli b/tools/ocaml/libs/xl/xl.mli
+deleted file mode 100644
+--- a/tools/ocaml/libs/xl/xl.mli
++++ /dev/null
+@@ -1,211 +0,0 @@
+-(*
+- * Copyright (C) 2009-2010 Citrix Ltd.
+- * Author Vincent Hanquez <vincent.hanquez@eu.citrix.com>
+- *
+- * This program is free software; you can redistribute it and/or modify
+- * it under the terms of the GNU Lesser General Public License as published
+- * by the Free Software Foundation; version 2.1 only. with the special
+- * exception on linking described in file LICENSE.
+- *
+- * This program is distributed in the hope that it will be useful,
+- * but WITHOUT ANY WARRANTY; without even the implied warranty of
+- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+- * GNU Lesser General Public License for more details.
+- *)
+-
+-exception Error of string
+-
+-type create_info =
+-{
+-	hvm : bool;
+-	hap : bool;
+-	oos : bool;
+-	ssidref : int32;
+-	name : string;
+-	uuid : int array;
+-	xsdata : (string * string) list;
+-	platformdata : (string * string) list;
+-	poolid : int32;
+-	poolname : string;
+-}
+-
+-type build_pv_info =
+-{
+-	slack_memkb : int64;
+-	cmdline : string;
+-	ramdisk : string;
+-	features : string;
+-}
+-
+-type build_hvm_info =
+-{
+-	pae : bool;
+-	apic : bool;
+-	acpi : bool;
+-	nx : bool;
+-	viridian : bool;
+-	timeoffset : string;
+-	timer_mode : int;
+-	hpet : int;
+-	vpt_align : int;
+-}
+-
+-type build_spec = BuildHVM of build_hvm_info | BuildPV of build_pv_info
+-
+-type build_info =
+-{
+-	max_vcpus : int;
+-	cur_vcpus : int;
+-	max_memkb : int64;
+-	target_memkb : int64;
+-	video_memkb : int64;
+-	shadow_memkb : int64;
+-	kernel : string;
+-	priv: build_spec;
+-}
+-
+-type build_state =
+-{
+-	store_port : int;
+-	store_mfn : int64;
+-	console_port : int;
+-	console_mfn : int64;
+-}
+-
+-type domid = int
+-
+-type disk_phystype =
+-	| PHYSTYPE_QCOW
+-	| PHYSTYPE_QCOW2
+-	| PHYSTYPE_VHD
+-	| PHYSTYPE_AIO
+-	| PHYSTYPE_FILE
+-	| PHYSTYPE_PHY
+-
+-type disk_info =
+-{
+-	backend_domid : domid;
+-	physpath : string;
+-	phystype : disk_phystype;
+-	virtpath : string;
+-	unpluggable : bool;
+-	readwrite : bool;
+-	is_cdrom : bool;
+-}
+-
+-type nic_type =
+-	| NICTYPE_IOEMU
+-	| NICTYPE_VIF
+-
+-type nic_info =
+-{
+-	backend_domid : domid;
+-	devid : int;
+-	mtu : int;
+-	model : string;
+-	mac : int array;
+-	bridge : string;
+-	ifname : string;
+-	script : string;
+-	nictype : nic_type;
+-}
+-
+-type console_type =
+-	| CONSOLETYPE_XENCONSOLED
+-	| CONSOLETYPE_IOEMU
+-
+-type console_info =
+-{
+-	backend_domid : domid;
+-	devid : int;
+-	consoletype : console_type;
+-}
+-
+-type vkb_info =
+-{
+-	backend_domid : domid;
+-	devid : int;
+-}
+-
+-type vfb_info =
+-{
+-	backend_domid : domid;
+-	devid : int;
+-	vnc : bool;
+-	vnclisten : string;
+-	vncpasswd : string;
+-	vncdisplay : int;
+-	vncunused : bool;
+-	keymap : string;
+-	sdl : bool;
+-	opengl : bool;
+-	display : string;
+-	xauthority : string;
+-}
+-
+-type pci_info =
+-{
+-	v : int; (* domain * bus * dev * func multiplexed *)
+-	domain : int;
+-	vdevfn : int;
+-	msitranslate : bool;
+-	power_mgmt : bool;
+-}
+-
+-type physinfo =
+-{
+-	threads_per_core: int;
+-	cores_per_socket: int;
+-	max_cpu_id: int;
+-	nr_cpus: int;
+-	cpu_khz: int;
+-	total_pages: int64;
+-	free_pages: int64;
+-	scrub_pages: int64;
+-	nr_nodes: int;
+-	hwcap: int32 array;
+-	physcap: int32;
+-}
+-
+-type sched_credit =
+-{
+-	weight: int;
+-	cap: int;
+-}
+-
+-external domain_make : create_info -> domid = "stub_xl_domain_make"
+-external domain_build : build_info -> domid -> build_state = "stub_xl_domain_build"
+-
+-external disk_add : disk_info -> domid -> unit = "stub_xl_disk_add"
+-external disk_remove : disk_info -> domid -> unit = "stub_xl_disk_remove"
+-
+-external nic_add : nic_info -> domid -> unit = "stub_xl_nic_add"
+-external nic_remove : disk_info -> domid -> unit = "stub_xl_nic_remove"
+-
+-external console_add : console_info -> build_state -> domid -> unit = "stub_xl_console_add"
+-
+-external vkb_add : vkb_info -> domid -> unit = "stub_xl_vkb_add"
+-external vkb_clean_shutdown : domid -> unit = "stub_vkb_clean_shutdown"
+-external vkb_hard_shutdown : domid -> unit = "stub_vkb_hard_shutdown"
+-
+-external vfb_add : vfb_info -> domid -> unit = "stub_xl_vfb_add"
+-external vfb_clean_shutdown : domid -> unit = "stub_vfb_clean_shutdown"
+-external vfb_hard_shutdown : domid -> unit = "stub_vfb_hard_shutdown"
+-
+-external pci_add : pci_info -> domid -> unit = "stub_xl_pci_add"
+-external pci_remove : pci_info -> domid -> unit = "stub_xl_pci_remove"
+-external pci_shutdown : domid -> unit = "stub_xl_pci_shutdown"
+-
+-type button =
+-	| Button_Power
+-	| Button_Sleep
+-
+-external button_press : domid -> button -> unit = "stub_xl_button_press"
+-external physinfo : unit -> physinfo = "stub_xl_physinfo"
+-
+-external domain_sched_credit_get : domid -> sched_credit = "stub_xl_sched_credit_domain_get"
+-external domain_sched_credit_set : domid -> sched_credit -> unit = "stub_xl_sched_credit_domain_set"
+-
+-external send_trigger : domid -> string -> int -> unit = "stub_xl_send_trigger"
+-external send_sysrq : domid -> char -> unit = "stub_xl_send_sysrq"
+-external send_debug_keys : domid -> string -> unit = "stub_xl_send_debug_keys"
+diff --git a/tools/ocaml/libs/xl/xl_stubs.c b/tools/ocaml/libs/xl/xl_stubs.c
+deleted file mode 100644
+--- a/tools/ocaml/libs/xl/xl_stubs.c
++++ /dev/null
+@@ -1,729 +0,0 @@
+-/*
+- * Copyright (C) 2009-2010 Citrix Ltd.
+- * Author Vincent Hanquez <vincent.hanquez@eu.citrix.com>
+- *
+- * This program is free software; you can redistribute it and/or modify
+- * it under the terms of the GNU Lesser General Public License as published
+- * by the Free Software Foundation; version 2.1 only. with the special
+- * exception on linking described in file LICENSE.
+- *
+- * This program is distributed in the hope that it will be useful,
+- * but WITHOUT ANY WARRANTY; without even the implied warranty of
+- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+- * GNU Lesser General Public License for more details.
+- */
+-
+-#include <stdlib.h>
+-
+-#define CAML_NAME_SPACE
+-#include <caml/alloc.h>
+-#include <caml/memory.h>
+-#include <caml/signals.h>
+-#include <caml/fail.h>
+-#include <caml/callback.h>
+-
+-#include <sys/mman.h>
+-#include <stdint.h>
+-#include <string.h>
+-
+-#include "libxl.h"
+-
+-struct caml_logger {
+-	struct xentoollog_logger logger;
+-	int log_offset;
+-	char log_buf[2048];
+-};
+-
+-typedef struct caml_gc {
+-	int offset;
+-	void *ptrs[64];
+-} caml_gc;
+-
+-void log_vmessage(struct xentoollog_logger *logger, xentoollog_level level,
+-                  int errnoval, const char *context, const char *format, va_list al)
+-{
+-	struct caml_logger *ologger = (struct caml_logger *) logger;
+-
+-	ologger->log_offset += vsnprintf(ologger->log_buf + ologger->log_offset,
+-	                                 2048 - ologger->log_offset, format, al);
+-}
+-
+-void log_destroy(struct xentoollog_logger *logger)
+-{
+-}
+-
+-#define INIT_STRUCT() libxl_ctx ctx; struct caml_logger lg; struct caml_gc gc; gc.offset = 0;
+-
+-#define INIT_CTX()  \
+-	lg.logger.vmessage = log_vmessage; \
+-	lg.logger.destroy = log_destroy; \
+-	lg.logger.progress = NULL; \
+-	caml_enter_blocking_section(); \
+-	ret = libxl_ctx_init(&ctx, LIBXL_VERSION, (struct xentoollog_logger *) &lg); \
+-	if (ret != 0) \
+-		failwith_xl("cannot init context", &lg);
+-
+-#define FREE_CTX()  \
+-	gc_free(&gc); \
+-	caml_leave_blocking_section(); \
+-	libxl_ctx_free(&ctx)
+-
+-static char * dup_String_val(caml_gc *gc, value s)
+-{
+-	int len;
+-	char *c;
+-	len = caml_string_length(s);
+-	c = calloc(len + 1, sizeof(char));
+-	if (!c)
+-		caml_raise_out_of_memory();
+-	gc->ptrs[gc->offset++] = c;
+-	memcpy(c, String_val(s), len);
+-	return c;
+-}
+-
+-static void gc_free(caml_gc *gc)
+-{
+-	int i;
+-	for (i = 0; i < gc->offset; i++) {
+-		free(gc->ptrs[i]);
+-	}
+-}
+-
+-void failwith_xl(char *fname, struct caml_logger *lg)
+-{
+-	char *s;
+-	s = (lg) ? lg->log_buf : fname;
+-	caml_raise_with_string(*caml_named_value("xl.error"), s);
+-}
+-
+-#if 0 /* TODO: wrap libxl_domain_create(), these functions will be needed then */
+-static void * gc_calloc(caml_gc *gc, size_t nmemb, size_t size)
+-{
+-	void *ptr;
+-	ptr = calloc(nmemb, size);
+-	if (!ptr)
+-		caml_raise_out_of_memory();
+-	gc->ptrs[gc->offset++] = ptr;
+-	return ptr;
+-}
+-
+-static int string_string_tuple_array_val (caml_gc *gc, char ***c_val, value v)
+-{
+-	CAMLparam1(v);
+-	CAMLlocal1(a);
+-	int i;
+-	char **array;
+-
+-	for (i = 0, a = Field(v, 5); a != Val_emptylist; a = Field(a, 1)) { i++; }
+-
+-	array = gc_calloc(gc, (i + 1) * 2, sizeof(char *));
+-	if (!array)
+-		return 1;
+-	for (i = 0, a = Field(v, 5); a != Val_emptylist; a = Field(a, 1), i++) {
+-		value b = Field(a, 0);
+-		array[i * 2] = dup_String_val(gc, Field(b, 0));
+-		array[i * 2 + 1] = dup_String_val(gc, Field(b, 1));
+-	}
+-	*c_val = array;
+-	CAMLreturn(0);
+-}
+-
+-static int domain_create_info_val (caml_gc *gc, libxl_domain_create_info *c_val, value v)
+-{
+-	CAMLparam1(v);
+-	CAMLlocal1(a);
+-	uint8_t *uuid = libxl_uuid_bytearray(&c_val->uuid);
+-	int i;
+-
+-	c_val->hvm = Bool_val(Field(v, 0));
+-	c_val->hap = Bool_val(Field(v, 1));
+-	c_val->oos = Bool_val(Field(v, 2));
+-	c_val->ssidref = Int32_val(Field(v, 3));
+-	c_val->name = dup_String_val(gc, Field(v, 4));
+-	a = Field(v, 5);
+-	for (i = 0; i < 16; i++)
+-		uuid[i] = Int_val(Field(a, i));
+-	string_string_tuple_array_val(gc, &(c_val->xsdata), Field(v, 6));
+-	string_string_tuple_array_val(gc, &(c_val->platformdata), Field(v, 7));
+-
+-	c_val->poolid = Int32_val(Field(v, 8));
+-	c_val->poolname = dup_String_val(gc, Field(v, 9));
+-
+-	CAMLreturn(0);
+-}
+-
+-static int domain_build_info_val (caml_gc *gc, libxl_domain_build_info *c_val, value v)
+-{
+-	CAMLparam1(v);
+-	CAMLlocal1(infopriv);
+-
+-	c_val->max_vcpus = Int_val(Field(v, 0));
+-	c_val->cur_vcpus = Int_val(Field(v, 1));
+-	c_val->max_memkb = Int64_val(Field(v, 2));
+-	c_val->target_memkb = Int64_val(Field(v, 3));
+-	c_val->video_memkb = Int64_val(Field(v, 4));
+-	c_val->shadow_memkb = Int64_val(Field(v, 5));
+-	c_val->kernel.path = dup_String_val(gc, Field(v, 6));
+-	c_val->is_hvm = Tag_val(Field(v, 7)) == 0;
+-	infopriv = Field(Field(v, 7), 0);
+-	if (c_val->hvm) {
+-		c_val->u.hvm.pae = Bool_val(Field(infopriv, 0));
+-		c_val->u.hvm.apic = Bool_val(Field(infopriv, 1));
+-		c_val->u.hvm.acpi = Bool_val(Field(infopriv, 2));
+-		c_val->u.hvm.nx = Bool_val(Field(infopriv, 3));
+-		c_val->u.hvm.viridian = Bool_val(Field(infopriv, 4));
+-		c_val->u.hvm.timeoffset = dup_String_val(gc, Field(infopriv, 5));
+-		c_val->u.hvm.timer_mode = Int_val(Field(infopriv, 6));
+-		c_val->u.hvm.hpet = Int_val(Field(infopriv, 7));
+-		c_val->u.hvm.vpt_align = Int_val(Field(infopriv, 8));
+-	} else {
+-		c_val->u.pv.slack_memkb = Int64_val(Field(infopriv, 0));
+-		c_val->u.pv.cmdline = dup_String_val(gc, Field(infopriv, 1));
+-		c_val->u.pv.ramdisk.path = dup_String_val(gc, Field(infopriv, 2));
+-		c_val->u.pv.features = dup_String_val(gc, Field(infopriv, 3));
+-	}
+-
+-	CAMLreturn(0);
+-}
+-#endif
+-
+-static int device_disk_val(caml_gc *gc, libxl_device_disk *c_val, value v)
+-{
+-	CAMLparam1(v);
+-
+-	c_val->backend_domid = Int_val(Field(v, 0));
+-	c_val->pdev_path = dup_String_val(gc, Field(v, 1));
+-	c_val->vdev = dup_String_val(gc, Field(v, 2));
+-        c_val->backend = (Int_val(Field(v, 3)));
+-        c_val->format = (Int_val(Field(v, 4)));
+-	c_val->unpluggable = Bool_val(Field(v, 5));
+-	c_val->readwrite = Bool_val(Field(v, 6));
+-	c_val->is_cdrom = Bool_val(Field(v, 7));
+-
+-	CAMLreturn(0);
+-}
+-
+-static int device_nic_val(caml_gc *gc, libxl_device_nic *c_val, value v)
+-{
+-	CAMLparam1(v);
+-	int i;
+-	int ret = 0;
+-	c_val->backend_domid = Int_val(Field(v, 0));
+-	c_val->devid = Int_val(Field(v, 1));
+-	c_val->mtu = Int_val(Field(v, 2));
+-	c_val->model = dup_String_val(gc, Field(v, 3));
+-
+-	if (Wosize_val(Field(v, 4)) != 6) {
+-		ret = 1;
+-		goto out;
+-	}
+-	for (i = 0; i < 6; i++)
+-		c_val->mac[i] = Int_val(Field(Field(v, 4), i));
+-
+-	/* not handling c_val->ip */
+-	c_val->bridge = dup_String_val(gc, Field(v, 5));
+-	c_val->ifname = dup_String_val(gc, Field(v, 6));
+-	c_val->script = dup_String_val(gc, Field(v, 7));
+-	c_val->nictype = (Int_val(Field(v, 8))) + NICTYPE_IOEMU;
+-
+-out:
+-	CAMLreturn(ret);
+-}
+-
+-static int device_console_val(caml_gc *gc, libxl_device_console *c_val, value v)
+-{
+-	CAMLparam1(v);
+-
+-	c_val->backend_domid = Int_val(Field(v, 0));
+-	c_val->devid = Int_val(Field(v, 1));
+-	c_val->consback = (Int_val(Field(v, 2))) + LIBXL_CONSBACK_XENCONSOLED;
+-
+-	CAMLreturn(0);
+-}
+-
+-static int device_vkb_val(caml_gc *gc, libxl_device_vkb *c_val, value v)
+-{
+-	CAMLparam1(v);
+-
+-	c_val->backend_domid = Int_val(Field(v, 0));
+-	c_val->devid = Int_val(Field(v, 1));
+-
+-	CAMLreturn(0);
+-}
+-
+-static int device_vfb_val(caml_gc *gc, libxl_device_vfb *c_val, value v)
+-{
+-	CAMLparam1(v);
+-
+-	c_val->backend_domid = Int_val(Field(v, 0));
+-	c_val->devid = Int_val(Field(v, 1));
+-	c_val->vnc = Bool_val(Field(v, 2));
+-	c_val->vnclisten = dup_String_val(gc, Field(v, 3));
+-	c_val->vncpasswd = dup_String_val(gc, Field(v, 4));
+-	c_val->vncdisplay = Int_val(Field(v, 5));
+-	c_val->keymap = dup_String_val(gc, Field(v, 6));
+-	c_val->sdl = Bool_val(Field(v, 7));
+-	c_val->opengl = Bool_val(Field(v, 8));
+-	c_val->display = dup_String_val(gc, Field(v, 9));
+-	c_val->xauthority = dup_String_val(gc, Field(v, 10));
+-
+-	CAMLreturn(0);
+-}
+-
+-static int device_pci_val(caml_gc *gc, libxl_device_pci *c_val, value v)
+-{
+-	union {
+-		unsigned int value;
+-		struct {
+-			unsigned int reserved1:2;
+-			unsigned int reg:6;
+-			unsigned int func:3;
+-			unsigned int dev:5;
+-			unsigned int bus:8;
+-			unsigned int reserved2:7;
+-			unsigned int enable:1;
+-		}fields;
+-	}u;
+-	CAMLparam1(v);
+-
+-	/* FIXME: propagate API change to ocaml */
+-	u.value = Int_val(Field(v, 0));
+-	c_val->reg = u.fields.reg;
+-	c_val->func = u.fields.func;
+-	c_val->dev = u.fields.dev;
+-	c_val->bus = u.fields.bus;
+-	c_val->enable = u.fields.enable;
+-
+-	c_val->domain = Int_val(Field(v, 1));
+-	c_val->vdevfn = Int_val(Field(v, 2));
+-	c_val->msitranslate = Bool_val(Field(v, 3));
+-	c_val->power_mgmt = Bool_val(Field(v, 4));
+-
+-	CAMLreturn(0);
+-}
+-
+-static int sched_credit_val(caml_gc *gc, libxl_sched_credit *c_val, value v)
+-{
+-	CAMLparam1(v);
+-	c_val->weight = Int_val(Field(v, 0));
+-	c_val->cap = Int_val(Field(v, 1));
+-	CAMLreturn(0);
+-}
+-
+-static int domain_build_state_val(caml_gc *gc, libxl_domain_build_state *c_val, value v)
+-{
+-	CAMLparam1(v);
+-
+-	c_val->store_port = Int_val(Field(v, 0));
+-	c_val->store_mfn = Int64_val(Field(v, 1));
+-	c_val->console_port = Int_val(Field(v, 2));
+-	c_val->console_mfn = Int64_val(Field(v, 3));
+-	
+-	CAMLreturn(0);
+-}
+-
+-static value Val_sched_credit(libxl_sched_credit *c_val)
+-{
+-	CAMLparam0();
+-	CAMLlocal1(v);
+-
+-	v = caml_alloc_tuple(2);
+-
+-	Store_field(v, 0, Val_int(c_val->weight));
+-	Store_field(v, 1, Val_int(c_val->cap));
+-
+-	CAMLreturn(v);
+-}
+-
+-static value Val_physinfo(libxl_physinfo *c_val)
+-{
+-	CAMLparam0();
+-	CAMLlocal2(v, hwcap);
+-	int i;
+-
+-	hwcap = caml_alloc_tuple(8);
+-	for (i = 0; i < 8; i++)
+-		Store_field(hwcap, i, caml_copy_int32(c_val->hw_cap[i]));
+-
+-	v = caml_alloc_tuple(11);
+-	Store_field(v, 0, Val_int(c_val->threads_per_core));
+-	Store_field(v, 1, Val_int(c_val->cores_per_socket));
+-	Store_field(v, 2, Val_int(c_val->max_cpu_id));
+-	Store_field(v, 3, Val_int(c_val->nr_cpus));
+-	Store_field(v, 4, Val_int(c_val->cpu_khz));
+-	Store_field(v, 5, caml_copy_int64(c_val->total_pages));
+-	Store_field(v, 6, caml_copy_int64(c_val->free_pages));
+-	Store_field(v, 7, caml_copy_int64(c_val->scrub_pages));
+-	Store_field(v, 8, Val_int(c_val->nr_nodes));
+-	Store_field(v, 9, hwcap);
+-	Store_field(v, 10, caml_copy_int32(c_val->phys_cap));
+-
+-	CAMLreturn(v);
+-}
+-
+-value stub_xl_disk_add(value info, value domid)
+-{
+-	CAMLparam2(info, domid);
+-	libxl_device_disk c_info;
+-	int ret;
+-	INIT_STRUCT();
+-
+-	device_disk_val(&gc, &c_info, info);
+-	c_info.domid = Int_val(domid);
+-
+-	INIT_CTX();
+-	ret = libxl_device_disk_add(&ctx, Int_val(domid), &c_info);
+-	if (ret != 0)
+-		failwith_xl("disk_add", &lg);
+-	FREE_CTX();
+-	CAMLreturn(Val_unit);
+-}
+-
+-value stub_xl_disk_remove(value info, value domid)
+-{
+-	CAMLparam2(info, domid);
+-	libxl_device_disk c_info;
+-	int ret;
+-	INIT_STRUCT();
+-
+-	device_disk_val(&gc, &c_info, info);
+-	c_info.domid = Int_val(domid);
+-
+-	INIT_CTX();
+-	ret = libxl_device_disk_del(&ctx, &c_info, 0);
+-	if (ret != 0)
+-		failwith_xl("disk_remove", &lg);
+-	FREE_CTX();
+-	CAMLreturn(Val_unit);
+-}
+-
+-value stub_xl_nic_add(value info, value domid)
+-{
+-	CAMLparam2(info, domid);
+-	libxl_device_nic c_info;
+-	int ret;
+-	INIT_STRUCT();
+-
+-	device_nic_val(&gc, &c_info, info);
+-	c_info.domid = Int_val(domid);
+-
+-	INIT_CTX();
+-	ret = libxl_device_nic_add(&ctx, Int_val(domid), &c_info);
+-	if (ret != 0)
+-		failwith_xl("nic_add", &lg);
+-	FREE_CTX();
+-	CAMLreturn(Val_unit);
+-}
+-
+-value stub_xl_nic_remove(value info, value domid)
+-{
+-	CAMLparam2(info, domid);
+-	libxl_device_nic c_info;
+-	int ret;
+-	INIT_STRUCT();
+-
+-	device_nic_val(&gc, &c_info, info);
+-	c_info.domid = Int_val(domid);
+-
+-	INIT_CTX();
+-	ret = libxl_device_nic_del(&ctx, &c_info, 0);
+-	if (ret != 0)
+-		failwith_xl("nic_remove", &lg);
+-	FREE_CTX();
+-	CAMLreturn(Val_unit);
+-}
+-
+-value stub_xl_console_add(value info, value state, value domid)
+-{
+-	CAMLparam3(info, state, domid);
+-	libxl_device_console c_info;
+-	libxl_domain_build_state c_state;
+-	int ret;
+-	INIT_STRUCT();
+-
+-	device_console_val(&gc, &c_info, info);
+-	domain_build_state_val(&gc, &c_state, state);
+-	c_info.domid = Int_val(domid);
+-	c_info.build_state = &c_state;
+-
+-	INIT_CTX();
+-	ret = libxl_device_console_add(&ctx, Int_val(domid), &c_info);
+-	if (ret != 0)
+-		failwith_xl("console_add", &lg);
+-	FREE_CTX();
+-	CAMLreturn(Val_unit);
+-}
+-
+-value stub_xl_vkb_add(value info, value domid)
+-{
+-	CAMLparam2(info, domid);
+-	libxl_device_vkb c_info;
+-	int ret;
+-	INIT_STRUCT();
+-
+-	device_vkb_val(&gc, &c_info, info);
+-	c_info.domid = Int_val(domid);
+-
+-	INIT_CTX();
+-	ret = libxl_device_vkb_add(&ctx, Int_val(domid), &c_info);
+-	if (ret != 0)
+-		failwith_xl("vkb_add", &lg);
+-	FREE_CTX();
+-	
+-	CAMLreturn(Val_unit);
+-}
+-
+-value stub_xl_vkb_clean_shutdown(value domid)
+-{
+-	CAMLparam1(domid);
+-	int ret;
+-	INIT_STRUCT();
+-
+-	INIT_CTX();
+-	ret = libxl_device_vkb_clean_shutdown(&ctx, Int_val(domid));
+-	if (ret != 0)
+-		failwith_xl("vkb_clean_shutdown", &lg);
+-	FREE_CTX();
+-	
+-	CAMLreturn(Val_unit);
+-}
+-
+-value stub_xl_vkb_hard_shutdown(value domid)
+-{
+-	CAMLparam1(domid);
+-	int ret;
+-	INIT_STRUCT();
+-
+-	INIT_CTX();
+-	ret = libxl_device_vkb_hard_shutdown(&ctx, Int_val(domid));
+-	if (ret != 0)
+-		failwith_xl("vkb_hard_shutdown", &lg);
+-	FREE_CTX();
+-	
+-	CAMLreturn(Val_unit);
+-}
+-
+-value stub_xl_vfb_add(value info, value domid)
+-{
+-	CAMLparam2(info, domid);
+-	libxl_device_vfb c_info;
+-	int ret;
+-	INIT_STRUCT();
+-
+-	device_vfb_val(&gc, &c_info, info);
+-	c_info.domid = Int_val(domid);
+-
+-	INIT_CTX();
+-	ret = libxl_device_vfb_add(&ctx, Int_val(domid), &c_info);
+-	if (ret != 0)
+-		failwith_xl("vfb_add", &lg);
+-	FREE_CTX();
+-	
+-	CAMLreturn(Val_unit);
+-}
+-
+-value stub_xl_vfb_clean_shutdown(value domid)
+-{
+-	CAMLparam1(domid);
+-	int ret;
+-	INIT_STRUCT();
+-
+-	INIT_CTX();
+-	ret = libxl_device_vfb_clean_shutdown(&ctx, Int_val(domid));
+-	if (ret != 0)
+-		failwith_xl("vfb_clean_shutdown", &lg);
+-	FREE_CTX();
+-	
+-	CAMLreturn(Val_unit);
+-}
+-
+-value stub_xl_vfb_hard_shutdown(value domid)
+-{
+-	CAMLparam1(domid);
+-	int ret;
+-	INIT_STRUCT();
+-
+-	INIT_CTX();
+-	ret = libxl_device_vfb_hard_shutdown(&ctx, Int_val(domid));
+-	if (ret != 0)
+-		failwith_xl("vfb_hard_shutdown", &lg);
+-	FREE_CTX();
+-	
+-	CAMLreturn(Val_unit);
+-}
+-
+-value stub_xl_pci_add(value info, value domid)
+-{
+-	CAMLparam2(info, domid);
+-	libxl_device_pci c_info;
+-	int ret;
+-	INIT_STRUCT();
+-
+-	device_pci_val(&gc, &c_info, info);
+-
+-	INIT_CTX();
+-	ret = libxl_device_pci_add(&ctx, Int_val(domid), &c_info);
+-	if (ret != 0)
+-		failwith_xl("pci_add", &lg);
+-	FREE_CTX();
+-	
+-	CAMLreturn(Val_unit);
+-}
+-
+-value stub_xl_pci_remove(value info, value domid)
+-{
+-	CAMLparam2(info, domid);
+-	libxl_device_pci c_info;
+-	int ret;
+-	INIT_STRUCT();
+-
+-	device_pci_val(&gc, &c_info, info);
+-
+-	INIT_CTX();
+-	ret = libxl_device_pci_remove(&ctx, Int_val(domid), &c_info, 0);
+-	if (ret != 0)
+-		failwith_xl("pci_remove", &lg);
+-	FREE_CTX();
+-	
+-	CAMLreturn(Val_unit);
+-}
+-
+-value stub_xl_pci_shutdown(value domid)
+-{
+-	CAMLparam1(domid);
+-	int ret;
+-	INIT_STRUCT();
+-
+-	INIT_CTX();
+-	ret = libxl_device_pci_shutdown(&ctx, Int_val(domid));
+-	if (ret != 0)
+-		failwith_xl("pci_shutdown", &lg);
+-	FREE_CTX();
+-	
+-	CAMLreturn(Val_unit);
+-}
+-
+-value stub_xl_button_press(value domid, value button)
+-{
+-	CAMLparam2(domid, button);
+-	int ret;
+-	INIT_STRUCT();
+-	
+-	INIT_CTX();
+-	ret = libxl_button_press(&ctx, Int_val(domid), Int_val(button) + POWER_BUTTON);
+-	if (ret != 0)
+-		failwith_xl("button_press", &lg);
+-	FREE_CTX();
+-
+-	CAMLreturn(Val_unit);
+-}
+-
+-value stub_xl_physinfo(value unit)
+-{
+-	CAMLparam1(unit);
+-	CAMLlocal1(physinfo);
+-	libxl_physinfo c_physinfo;
+-	int ret;
+-	INIT_STRUCT();
+-
+-	INIT_CTX();
+-	ret = libxl_get_physinfo(&ctx, &c_physinfo);
+-	if (ret != 0)
+-		failwith_xl("physinfo", &lg);
+-	FREE_CTX();
+-	
+-	physinfo = Val_physinfo(&c_physinfo);
+-	CAMLreturn(physinfo);
+-}
+-
+-value stub_xl_sched_credit_domain_get(value domid)
+-{
+-	CAMLparam1(domid);
+-	CAMLlocal1(scinfo);
+-	libxl_sched_credit c_scinfo;
+-	int ret;
+-	INIT_STRUCT();
+-
+-	INIT_CTX();
+-	ret = libxl_sched_credit_domain_get(&ctx, Int_val(domid), &c_scinfo);
+-	if (ret != 0)
+-		failwith_xl("sched_credit_domain_get", &lg);
+-	FREE_CTX();
+-	
+-	scinfo = Val_sched_credit(&c_scinfo);
+-	CAMLreturn(scinfo);
+-}
+-
+-value stub_xl_sched_credit_domain_set(value domid, value scinfo)
+-{
+-	CAMLparam2(domid, scinfo);
+-	libxl_sched_credit c_scinfo;
+-	int ret;
+-	INIT_STRUCT();
+-
+-	sched_credit_val(&gc, &c_scinfo, scinfo);
+-
+-	INIT_CTX();
+-	ret = libxl_sched_credit_domain_set(&ctx, Int_val(domid), &c_scinfo);
+-	if (ret != 0)
+-		failwith_xl("sched_credit_domain_set", &lg);
+-	FREE_CTX();
+-	
+-	CAMLreturn(Val_unit);
+-}
+-
+-value stub_xl_send_trigger(value domid, value trigger, value vcpuid)
+-{
+-	CAMLparam3(domid, trigger, vcpuid);
+-	int ret;
+-	char *c_trigger;
+-	INIT_STRUCT();
+-
+-	c_trigger = dup_String_val(&gc, trigger);
+-
+-	INIT_CTX();
+-	ret = libxl_send_trigger(&ctx, Int_val(domid), c_trigger, Int_val(vcpuid));
+-	if (ret != 0)
+-		failwith_xl("send_trigger", &lg);
+-	FREE_CTX();
+-	CAMLreturn(Val_unit);
+-}
+-
+-value stub_xl_send_sysrq(value domid, value sysrq)
+-{
+-	CAMLparam2(domid, sysrq);
+-	int ret;
+-	INIT_STRUCT();
+-
+-	INIT_CTX();
+-	ret = libxl_send_sysrq(&ctx, Int_val(domid), Int_val(sysrq));
+-	if (ret != 0)
+-		failwith_xl("send_sysrq", &lg);
+-	FREE_CTX();
+-	CAMLreturn(Val_unit);
+-}
+-
+-value stub_xl_send_debug_keys(value keys)
+-{
+-	CAMLparam1(keys);
+-	int ret;
+-	char *c_keys;
+-	INIT_STRUCT();
+-
+-	c_keys = dup_String_val(&gc, keys);
+-
+-	INIT_CTX();
+-	ret = libxl_send_debug_keys(&ctx, c_keys);
+-	if (ret != 0)
+-		failwith_xl("send_debug_keys", &lg);
+-	FREE_CTX();
+-	CAMLreturn(Val_unit);
+-}
+-
+-/*
+- * Local variables:
+- *  indent-tabs-mode: t
+- *  c-basic-offset: 8
+- *  tab-width: 8
+- * End:
+- */
+diff --git a/tools/ocaml/libs/xs/META.in b/tools/ocaml/libs/xs/META.in
+--- a/tools/ocaml/libs/xs/META.in
++++ b/tools/ocaml/libs/xs/META.in
+@@ -1,5 +1,5 @@
+ version = "@VERSION@"
+ description = "XenStore Interface"
+-requires = "unix,xb"
+-archive(byte) = "xs.cma"
+-archive(native) = "xs.cmxa"
++requires = "unix,xenbus"
++archive(byte) = "xenstore.cma"
++archive(native) = "xenstore.cmxa"
+diff --git a/tools/ocaml/libs/xs/Makefile b/tools/ocaml/libs/xs/Makefile
+--- a/tools/ocaml/libs/xs/Makefile
++++ b/tools/ocaml/libs/xs/Makefile
+@@ -3,6 +3,7 @@ XEN_ROOT=$(TOPLEVEL)/../..
+ include $(TOPLEVEL)/common.make
+ 
+ OCAMLINCLUDE += -I ../xb/
++OCAMLOPTFLAGS += -for-pack Xenstore
+ 
+ .NOTPARALLEL:
+ # Ocaml is such a PITA!
+@@ -12,7 +13,7 @@ PREOBJS = queueop xsraw xst
+ PRELIBS = $(foreach obj, $(PREOBJS),$(obj).cmo) $(foreach obj,$(PREOJBS),$(obj).cmx)
+ OBJS = queueop xsraw xst xs
+ INTF = xsraw.cmi xst.cmi xs.cmi
+-LIBS = xs.cma xs.cmxa
++LIBS = xenstore.cma xenstore.cmxa
+ 
+ all: $(PREINTF) $(PRELIBS) $(INTF) $(LIBS) $(PROGRAMS)
+ 
+@@ -20,26 +21,26 @@ bins: $(PROGRAMS)
+ 
+ libs: $(LIBS)
+ 
+-xs_OBJS = $(OBJS)
+-OCAML_NOC_LIBRARY = xs
++xenstore_OBJS = xenstore
++OCAML_NOC_LIBRARY = xenstore
+ 
+-#xs.cmxa: $(foreach obj,$(OBJS),$(obj).cmx)
+-#	$(E) " MLLIB     $@"
+-#	$(Q)$(OCAMLOPT) $(OCAMLOPTFLAGS) -a -o $@ $(foreach obj,$(OBJS),$(obj).cmx)
+-#
+-#xs.cma: $(foreach obj,$(OBJS),$(obj).cmo)
+-#	$(E) " MLLIB     $@"
+-#	$(Q)$(OCAMLC) -a -o $@ $(foreach obj,$(OBJS),$(obj).cmo)
++xenstore.cmx : $(foreach obj, $(OBJS), $(obj).cmx)
++	$(E) " CMX       $@"
++	$(Q)$(OCAMLOPT) -pack -o $@ $^
++
++xenstore.cmo : $(foreach obj, $(OBJS), $(obj).cmo)
++	$(E) " CMO       $@"
++	$(Q)$(OCAMLC) -pack -o $@ $^
+ 
+ .PHONY: install
+ install: $(LIBS) META
+ 	mkdir -p $(OCAMLDESTDIR)
+-	ocamlfind remove -destdir $(OCAMLDESTDIR) xs
+-	ocamlfind install -destdir $(OCAMLDESTDIR) -ldconf ignore xs META $(INTF) xs.mli xst.mli xsraw.mli $(LIBS) *.a *.cmx
++	ocamlfind remove -destdir $(OCAMLDESTDIR) xenstore
++	ocamlfind install -destdir $(OCAMLDESTDIR) -ldconf ignore xenstore META $(LIBS) xenstore.cmx xenstore.cmi *.a 
+ 
+ .PHONY: uninstall
+ uninstall:
+-	ocamlfind remove -destdir $(OCAMLDESTDIR) xs
++	ocamlfind remove -destdir $(OCAMLDESTDIR) xenstore
+ 
+ include $(TOPLEVEL)/Makefile.rules
+ 
+diff --git a/tools/ocaml/libs/xs/queueop.ml b/tools/ocaml/libs/xs/queueop.ml
+--- a/tools/ocaml/libs/xs/queueop.ml
++++ b/tools/ocaml/libs/xs/queueop.ml
+@@ -13,6 +13,7 @@
+  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  * GNU Lesser General Public License for more details.
+  *)
++open Xenbus
+ 
+ let data_concat ls = (String.concat "\000" ls) ^ "\000"
+ let queue_path ty (tid: int) (path: string) con =
+diff --git a/tools/ocaml/libs/xs/xs.ml b/tools/ocaml/libs/xs/xs.ml
+--- a/tools/ocaml/libs/xs/xs.ml
++++ b/tools/ocaml/libs/xs/xs.ml
+@@ -69,7 +69,7 @@ let get_watchevent xsh = Xsraw.get_watch
+ let read_watchevent xsh = Xsraw.read_watchevent xsh.con
+ 
+ let make fd = get_operations (Xsraw.open_fd fd)
+-let get_fd xsh = Xb.get_fd xsh.con.Xsraw.xb
++let get_fd xsh = Xenbus.Xb.get_fd xsh.con.Xsraw.xb
+ 
+ exception Timeout
+ 
+diff --git a/tools/ocaml/libs/xs/xsraw.ml b/tools/ocaml/libs/xs/xsraw.ml
+--- a/tools/ocaml/libs/xs/xsraw.ml
++++ b/tools/ocaml/libs/xs/xsraw.ml
+@@ -14,6 +14,8 @@
+  * GNU Lesser General Public License for more details.
+  *)
+ 
++open Xenbus
++
+ exception Partial_not_empty
+ exception Unexpected_packet of string
+ 
+@@ -27,7 +29,7 @@ let unexpected_packet expected received 
+ 	raise (Unexpected_packet s)
+ 
+ type con = {
+-	xb: Xb.t;
++	xb: Xenbus.Xb.t;
+ 	watchevents: (string * string) Queue.t;
+ }
+ 
+diff --git a/tools/ocaml/libs/xs/xsraw.mli b/tools/ocaml/libs/xs/xsraw.mli
+--- a/tools/ocaml/libs/xs/xsraw.mli
++++ b/tools/ocaml/libs/xs/xsraw.mli
+@@ -16,8 +16,8 @@
+ exception Partial_not_empty
+ exception Unexpected_packet of string
+ exception Invalid_path of string
+-val unexpected_packet : Xb.Op.operation -> Xb.Op.operation -> 'a
+-type con = { xb : Xb.t; watchevents : (string * string) Queue.t; }
++val unexpected_packet : Xenbus.Xb.Op.operation -> Xenbus.Xb.Op.operation -> 'a
++type con = { xb : Xenbus.Xb.t; watchevents : (string * string) Queue.t; }
+ val close : con -> unit
+ val open_fd : Unix.file_descr -> con
+ val split_string : ?limit:int -> char -> string -> string list
+@@ -26,14 +26,14 @@ type perms = int * perm * (int * perm) l
+ val string_of_perms : int * perm * (int * perm) list -> string
+ val perms_of_string : string -> int * perm * (int * perm) list
+ val pkt_send : con -> unit
+-val pkt_recv : con -> Xb.Packet.t
+-val pkt_recv_timeout : con -> float -> bool * Xb.Packet.t option
++val pkt_recv : con -> Xenbus.Xb.Packet.t
++val pkt_recv_timeout : con -> float -> bool * Xenbus.Xb.Packet.t option
+ val queue_watchevent : con -> string -> unit
+ val has_watchevents : con -> bool
+ val get_watchevent : con -> string * string
+ val read_watchevent : con -> string * string
+-val sync_recv : Xb.Op.operation -> con -> string
+-val sync : (Xb.t -> 'a) -> con -> string
++val sync_recv : Xenbus.Xb.Op.operation -> con -> string
++val sync : (Xenbus.Xb.t -> 'a) -> con -> string
+ val ack : string -> unit
+ val validate_path : string -> unit
+ val validate_watch_path : string -> unit
+diff --git a/tools/ocaml/xenstored/Makefile b/tools/ocaml/xenstored/Makefile
+--- a/tools/ocaml/xenstored/Makefile
++++ b/tools/ocaml/xenstored/Makefile
+@@ -35,11 +35,11 @@ INTF = symbol.cmi trie.cmi
+ XENSTOREDLIBS = \
+ 	unix.cmxa \
+ 	$(OCAML_TOPLEVEL)/libs/uuid/uuid.cmxa \
+-	-ccopt -L -ccopt $(OCAML_TOPLEVEL)/libs/mmap $(OCAML_TOPLEVEL)/libs/mmap/mmap.cmxa \
++	-ccopt -L -ccopt $(OCAML_TOPLEVEL)/libs/mmap $(OCAML_TOPLEVEL)/libs/mmap/xenmmap.cmxa \
+ 	-ccopt -L -ccopt $(OCAML_TOPLEVEL)/libs/log $(OCAML_TOPLEVEL)/libs/log/log.cmxa \
+-	-ccopt -L -ccopt $(OCAML_TOPLEVEL)/libs/eventchn $(OCAML_TOPLEVEL)/libs/eventchn/eventchn.cmxa \
+-	-ccopt -L -ccopt $(OCAML_TOPLEVEL)/libs/xc $(OCAML_TOPLEVEL)/libs/xc/xc.cmxa \
+-	-ccopt -L -ccopt $(OCAML_TOPLEVEL)/libs/xb $(OCAML_TOPLEVEL)/libs/xb/xb.cmxa \
++	-ccopt -L -ccopt $(OCAML_TOPLEVEL)/libs/eventchn $(OCAML_TOPLEVEL)/libs/eventchn/xeneventchn.cmxa \
++	-ccopt -L -ccopt $(OCAML_TOPLEVEL)/libs/xc $(OCAML_TOPLEVEL)/libs/xc/xenctrl.cmxa \
++	-ccopt -L -ccopt $(OCAML_TOPLEVEL)/libs/xb $(OCAML_TOPLEVEL)/libs/xb/xenbus.cmxa \
+ 	-ccopt -L -ccopt $(XEN_ROOT)/tools/libxc
+ 
+ PROGRAMS = oxenstored
+diff --git a/tools/ocaml/xenstored/connection.ml b/tools/ocaml/xenstored/connection.ml
+--- a/tools/ocaml/xenstored/connection.ml
++++ b/tools/ocaml/xenstored/connection.ml
+@@ -27,7 +27,7 @@ type watch = {
+ }
+ 
+ and t = {
+-	xb: Xb.t;
++	xb: Xenbus.Xb.t;
+ 	dom: Domain.t option;
+ 	transactions: (int, Transaction.t) Hashtbl.t;
+ 	mutable next_tid: int;
+@@ -93,10 +93,10 @@ let create xbcon dom =
+ 	Logging.new_connection ~tid:Transaction.none ~con:(get_domstr con);
+ 	con
+ 
+-let get_fd con = Xb.get_fd con.xb
++let get_fd con = Xenbus.Xb.get_fd con.xb
+ let close con =
+ 	Logging.end_connection ~tid:Transaction.none ~con:(get_domstr con);
+-	Xb.close con.xb
++	Xenbus.Xb.close con.xb
+ 
+ let get_perm con =
+ 	con.perm
+@@ -108,9 +108,9 @@ let set_target con target_domid =
+ 	con.perm <- Perms.Connection.set_target (get_perm con) ~perms:[Perms.READ; Perms.WRITE] target_domid
+ 
+ let send_reply con tid rid ty data =
+-	Xb.queue con.xb (Xb.Packet.create tid rid ty data)
++	Xenbus.Xb.queue con.xb (Xenbus.Xb.Packet.create tid rid ty data)
+ 
+-let send_error con tid rid err = send_reply con tid rid Xb.Op.Error (err ^ "\000")
++let send_error con tid rid err = send_reply con tid rid Xenbus.Xb.Op.Error (err ^ "\000")
+ let send_ack con tid rid ty = send_reply con tid rid ty "OK\000"
+ 
+ let get_watch_path con path =
+@@ -166,7 +166,7 @@ let list_watches con =
+ 
+ let fire_single_watch watch =
+ 	let data = Utils.join_by_null [watch.path; watch.token; ""] in
+-	send_reply watch.con Transaction.none 0 Xb.Op.Watchevent data
++	send_reply watch.con Transaction.none 0 Xenbus.Xb.Op.Watchevent data
+ 
+ let fire_watch watch path =
+ 	let new_path =
+@@ -179,7 +179,7 @@ let fire_watch watch path =
+ 			path
+ 	in
+ 	let data = Utils.join_by_null [ new_path; watch.token; "" ] in
+-	send_reply watch.con Transaction.none 0 Xb.Op.Watchevent data
++	send_reply watch.con Transaction.none 0 Xenbus.Xb.Op.Watchevent data
+ 
+ let find_next_tid con =
+ 	let ret = con.next_tid in con.next_tid <- con.next_tid + 1; ret
+@@ -203,15 +203,15 @@ let end_transaction con tid commit =
+ let get_transaction con tid =
+ 	Hashtbl.find con.transactions tid
+ 
+-let do_input con = Xb.input con.xb
+-let has_input con = Xb.has_in_packet con.xb
+-let pop_in con = Xb.get_in_packet con.xb
+-let has_more_input con = Xb.has_more_input con.xb
++let do_input con = Xenbus.Xb.input con.xb
++let has_input con = Xenbus.Xb.has_in_packet con.xb
++let pop_in con = Xenbus.Xb.get_in_packet con.xb
++let has_more_input con = Xenbus.Xb.has_more_input con.xb
+ 
+-let has_output con = Xb.has_output con.xb
+-let has_new_output con = Xb.has_new_output con.xb
+-let peek_output con = Xb.peek_output con.xb
+-let do_output con = Xb.output con.xb
++let has_output con = Xenbus.Xb.has_output con.xb
++let has_new_output con = Xenbus.Xb.has_new_output con.xb
++let peek_output con = Xenbus.Xb.peek_output con.xb
++let do_output con = Xenbus.Xb.output con.xb
+ 
+ let incr_ops con = con.stat_nb_ops <- con.stat_nb_ops + 1
+ 
+diff --git a/tools/ocaml/xenstored/connections.ml b/tools/ocaml/xenstored/connections.ml
+--- a/tools/ocaml/xenstored/connections.ml
++++ b/tools/ocaml/xenstored/connections.ml
+@@ -26,12 +26,12 @@ type t = {
+ let create () = { anonymous = []; domains = Hashtbl.create 8; watches = Trie.create () }
+ 
+ let add_anonymous cons fd can_write =
+-	let xbcon = Xb.open_fd fd in
++	let xbcon = Xenbus.Xb.open_fd fd in
+ 	let con = Connection.create xbcon None in
+ 	cons.anonymous <- con :: cons.anonymous
+ 
+ let add_domain cons dom =
+-	let xbcon = Xb.open_mmap (Domain.get_interface dom) (fun () -> Domain.notify dom) in
++	let xbcon = Xenbus.Xb.open_mmap (Domain.get_interface dom) (fun () -> Domain.notify dom) in
+ 	let con = Connection.create xbcon (Some dom) in
+ 	Hashtbl.add cons.domains (Domain.get_id dom) con
+ 
+diff --git a/tools/ocaml/xenstored/domain.ml b/tools/ocaml/xenstored/domain.ml
+--- a/tools/ocaml/xenstored/domain.ml
++++ b/tools/ocaml/xenstored/domain.ml
+@@ -20,10 +20,10 @@ let debug fmt = Logs.debug "general" fmt
+ 
+ type t =
+ {
+-	id: Xc.domid;
++	id: Xenctrl.domid;
+ 	mfn: nativeint;
+ 	remote_port: int;
+-	interface: Mmap.mmap_interface;
++	interface: Xenmmap.mmap_interface;
+ 	eventchn: Event.t;
+ 	mutable port: int;
+ }
+@@ -47,7 +47,7 @@ let bind_interdomain dom =
+ let close dom =
+ 	debug "domain %d unbound port %d" dom.id dom.port;
+ 	Event.unbind dom.eventchn dom.port;
+-	Mmap.unmap dom.interface;
++	Xenmmap.unmap dom.interface;
+ 	()
+ 
+ let make id mfn remote_port interface eventchn = {
+diff --git a/tools/ocaml/xenstored/domains.ml b/tools/ocaml/xenstored/domains.ml
+--- a/tools/ocaml/xenstored/domains.ml
++++ b/tools/ocaml/xenstored/domains.ml
+@@ -16,7 +16,7 @@
+ 
+ type domains = {
+ 	eventchn: Event.t;
+-	table: (Xc.domid, Domain.t) Hashtbl.t;
++	table: (Xenctrl.domid, Domain.t) Hashtbl.t;
+ }
+ 
+ let init eventchn =
+@@ -33,16 +33,16 @@ let cleanup xc doms =
+ 
+ 	Hashtbl.iter (fun id _ -> if id <> 0 then
+ 		try
+-			let info = Xc.domain_getinfo xc id in
+-			if info.Xc.shutdown || info.Xc.dying then (
++			let info = Xenctrl.domain_getinfo xc id in
++			if info.Xenctrl.shutdown || info.Xenctrl.dying then (
+ 				Logs.debug "general" "Domain %u died (dying=%b, shutdown %b -- code %d)"
+-				                    id info.Xc.dying info.Xc.shutdown info.Xc.shutdown_code;
+-				if info.Xc.dying then
++				                    id info.Xenctrl.dying info.Xenctrl.shutdown info.Xenctrl.shutdown_code;
++				if info.Xenctrl.dying then
+ 					dead_dom := id :: !dead_dom
+ 				else
+ 					notify := true;
+ 			)
+-		with Xc.Error _ ->
++		with Xenctrl.Error _ ->
+ 			Logs.debug "general" "Domain %u died -- no domain info" id;
+ 			dead_dom := id :: !dead_dom;
+ 		) doms.table;
+@@ -57,7 +57,7 @@ let resume doms domid =
+ 	()
+ 
+ let create xc doms domid mfn port =
+-	let interface = Xc.map_foreign_range xc domid (Mmap.getpagesize()) mfn in
++	let interface = Xenctrl.map_foreign_range xc domid (Xenmmap.getpagesize()) mfn in
+ 	let dom = Domain.make domid mfn port interface doms.eventchn in
+ 	Hashtbl.add doms.table domid dom;
+ 	Domain.bind_interdomain dom;
+@@ -66,13 +66,13 @@ let create xc doms domid mfn port =
+ let create0 fake doms =
+ 	let port, interface =
+ 		if fake then (
+-			0, Xc.with_intf (fun xc -> Xc.map_foreign_range xc 0 (Mmap.getpagesize()) 0n)
++			0, Xenctrl.with_intf (fun xc -> Xenctrl.map_foreign_range xc 0 (Xenmmap.getpagesize()) 0n)
+ 		) else (
+ 			let port = Utils.read_file_single_integer Define.xenstored_proc_port
+ 			and fd = Unix.openfile Define.xenstored_proc_kva
+ 					       [ Unix.O_RDWR ] 0o600 in
+-			let interface = Mmap.mmap fd Mmap.RDWR Mmap.SHARED
+-						  (Mmap.getpagesize()) 0 in
++			let interface = Xenmmap.mmap fd Xenmmap.RDWR Xenmmap.SHARED
++						  (Xenmmap.getpagesize()) 0 in
+ 			Unix.close fd;
+ 			port, interface
+ 		)
+diff --git a/tools/ocaml/xenstored/event.ml b/tools/ocaml/xenstored/event.ml
+--- a/tools/ocaml/xenstored/event.ml
++++ b/tools/ocaml/xenstored/event.ml
+@@ -16,15 +16,15 @@
+ 
+ (**************** high level binding ****************)
+ type t = {
+-	handle: Eventchn.handle;
++	handle: Xeneventchn.handle;
+ 	mutable virq_port: int;
+ }
+ 
+-let init () = { handle = Eventchn.init (); virq_port = -1; }
+-let fd eventchn = Eventchn.fd eventchn.handle
+-let bind_dom_exc_virq eventchn = eventchn.virq_port <- Eventchn.bind_dom_exc_virq eventchn.handle
+-let bind_interdomain eventchn domid port = Eventchn.bind_interdomain eventchn.handle domid port
+-let unbind eventchn port = Eventchn.unbind eventchn.handle port
+-let notify eventchn port = Eventchn.notify eventchn.handle port
+-let pending eventchn = Eventchn.pending eventchn.handle
+-let unmask eventchn port = Eventchn.unmask eventchn.handle port
++let init () = { handle = Xeneventchn.init (); virq_port = -1; }
++let fd eventchn = Xeneventchn.fd eventchn.handle
++let bind_dom_exc_virq eventchn = eventchn.virq_port <- Xeneventchn.bind_dom_exc_virq eventchn.handle
++let bind_interdomain eventchn domid port = Xeneventchn.bind_interdomain eventchn.handle domid port
++let unbind eventchn port = Xeneventchn.unbind eventchn.handle port
++let notify eventchn port = Xeneventchn.notify eventchn.handle port
++let pending eventchn = Xeneventchn.pending eventchn.handle
++let unmask eventchn port = Xeneventchn.unmask eventchn.handle port
+diff --git a/tools/ocaml/xenstored/logging.ml b/tools/ocaml/xenstored/logging.ml
+--- a/tools/ocaml/xenstored/logging.ml
++++ b/tools/ocaml/xenstored/logging.ml
+@@ -39,7 +39,7 @@ type access_type =
+ 	| Commit
+ 	| Newconn
+ 	| Endconn
+-	| XbOp of Xb.Op.operation
++	| XbOp of Xenbus.Xb.Op.operation
+ 
+ type access =
+ 	{
+@@ -82,35 +82,35 @@ let string_of_access_type = function
+ 	| Endconn                 -> "endconn  "
+ 
+ 	| XbOp op -> match op with
+-	| Xb.Op.Debug             -> "debug    "
++	| Xenbus.Xb.Op.Debug             -> "debug    "
+ 
+-	| Xb.Op.Directory         -> "directory"
+-	| Xb.Op.Read              -> "read     "
+-	| Xb.Op.Getperms          -> "getperms "
++	| Xenbus.Xb.Op.Directory         -> "directory"
++	| Xenbus.Xb.Op.Read              -> "read     "
++	| Xenbus.Xb.Op.Getperms          -> "getperms "
+ 
+-	| Xb.Op.Watch             -> "watch    "
+-	| Xb.Op.Unwatch           -> "unwatch  "
++	| Xenbus.Xb.Op.Watch             -> "watch    "
++	| Xenbus.Xb.Op.Unwatch           -> "unwatch  "
+ 
+-	| Xb.Op.Transaction_start -> "t start  "
+-	| Xb.Op.Transaction_end   -> "t end    "
++	| Xenbus.Xb.Op.Transaction_start -> "t start  "
++	| Xenbus.Xb.Op.Transaction_end   -> "t end    "
+ 
+-	| Xb.Op.Introduce         -> "introduce"
+-	| Xb.Op.Release           -> "release  "
+-	| Xb.Op.Getdomainpath     -> "getdomain"
+-	| Xb.Op.Isintroduced      -> "is introduced"
+-	| Xb.Op.Resume            -> "resume   "
++	| Xenbus.Xb.Op.Introduce         -> "introduce"
++	| Xenbus.Xb.Op.Release           -> "release  "
++	| Xenbus.Xb.Op.Getdomainpath     -> "getdomain"
++	| Xenbus.Xb.Op.Isintroduced      -> "is introduced"
++	| Xenbus.Xb.Op.Resume            -> "resume   "
+  
+-	| Xb.Op.Write             -> "write    "
+-	| Xb.Op.Mkdir             -> "mkdir    "
+-	| Xb.Op.Rm                -> "rm       "
+-	| Xb.Op.Setperms          -> "setperms "
+-	| Xb.Op.Restrict          -> "restrict "
+-	| Xb.Op.Set_target        -> "settarget"
++	| Xenbus.Xb.Op.Write             -> "write    "
++	| Xenbus.Xb.Op.Mkdir             -> "mkdir    "
++	| Xenbus.Xb.Op.Rm                -> "rm       "
++	| Xenbus.Xb.Op.Setperms          -> "setperms "
++	| Xenbus.Xb.Op.Restrict          -> "restrict "
++	| Xenbus.Xb.Op.Set_target        -> "settarget"
+ 
+-	| Xb.Op.Error             -> "error    "
+-	| Xb.Op.Watchevent        -> "w event  "
++	| Xenbus.Xb.Op.Error             -> "error    "
++	| Xenbus.Xb.Op.Watchevent        -> "w event  "
+ 
+-	| x                       -> Xb.Op.to_string x
++	| x                       -> Xenbus.Xb.Op.to_string x
+ 
+ let file_exists file =
+ 	try
+@@ -210,10 +210,10 @@ let commit = write_access_log Commit
+ let xb_op ~tid ~con ~ty data =
+ 	let print =
+ 	match ty with
+-		| Xb.Op.Read | Xb.Op.Directory | Xb.Op.Getperms -> !log_read_ops
+-		| Xb.Op.Transaction_start | Xb.Op.Transaction_end ->
++		| Xenbus.Xb.Op.Read | Xenbus.Xb.Op.Directory | Xenbus.Xb.Op.Getperms -> !log_read_ops
++		| Xenbus.Xb.Op.Transaction_start | Xenbus.Xb.Op.Transaction_end ->
+ 			false (* transactions are managed below *)
+-		| Xb.Op.Introduce | Xb.Op.Release | Xb.Op.Getdomainpath | Xb.Op.Isintroduced | Xb.Op.Resume ->
++		| Xenbus.Xb.Op.Introduce | Xenbus.Xb.Op.Release | Xenbus.Xb.Op.Getdomainpath | Xenbus.Xb.Op.Isintroduced | Xenbus.Xb.Op.Resume ->
+ 			!log_special_ops
+ 		| _ -> true
+ 	in
+@@ -222,17 +222,17 @@ let xb_op ~tid ~con ~ty data =
+ 
+ let start_transaction ~tid ~con = 
+ 	if !log_transaction_ops && tid <> 0
+-	then write_access_log ~tid ~con (XbOp Xb.Op.Transaction_start)
++	then write_access_log ~tid ~con (XbOp Xenbus.Xb.Op.Transaction_start)
+ 
+ let end_transaction ~tid ~con = 
+ 	if !log_transaction_ops && tid <> 0
+-	then write_access_log ~tid ~con (XbOp Xb.Op.Transaction_end)
++	then write_access_log ~tid ~con (XbOp Xenbus.Xb.Op.Transaction_end)
+ 
+ let xb_answer ~tid ~con ~ty data =
+ 	let print = match ty with
+-		| Xb.Op.Error when data="ENOENT " -> !log_read_ops
+-		| Xb.Op.Error -> !log_special_ops
+-		| Xb.Op.Watchevent -> true
++		| Xenbus.Xb.Op.Error when data="ENOENT " -> !log_read_ops
++		| Xenbus.Xb.Op.Error -> !log_special_ops
++		| Xenbus.Xb.Op.Watchevent -> true
+ 		| _ -> false
+ 	in
+ 		if print
+diff --git a/tools/ocaml/xenstored/perms.ml b/tools/ocaml/xenstored/perms.ml
+--- a/tools/ocaml/xenstored/perms.ml
++++ b/tools/ocaml/xenstored/perms.ml
+@@ -43,9 +43,9 @@ struct
+ 
+ type t =
+ {
+-	owner: Xc.domid;
++	owner: Xenctrl.domid;
+ 	other: permty;
+-	acl: (Xc.domid * permty) list;
++	acl: (Xenctrl.domid * permty) list;
+ }
+ 
+ let create owner other acl =
+@@ -88,7 +88,7 @@ end
+ module Connection =
+ struct
+ 
+-type elt = Xc.domid * (permty list)
++type elt = Xenctrl.domid * (permty list)
+ type t =
+ 	{ main: elt;
+ 	  target: elt option; }
+diff --git a/tools/ocaml/xenstored/process.ml b/tools/ocaml/xenstored/process.ml
+--- a/tools/ocaml/xenstored/process.ml
++++ b/tools/ocaml/xenstored/process.ml
+@@ -54,10 +54,10 @@ let split_one_path data con =
+ let process_watch ops cons =
+ 	let do_op_watch op cons =
+ 		let recurse = match (fst op) with
+-		| Xb.Op.Write    -> false
+-		| Xb.Op.Mkdir    -> false
+-		| Xb.Op.Rm       -> true
+-		| Xb.Op.Setperms -> false
++		| Xenbus.Xb.Op.Write    -> false
++		| Xenbus.Xb.Op.Mkdir    -> false
++		| Xenbus.Xb.Op.Rm       -> true
++		| Xenbus.Xb.Op.Setperms -> false
+ 		| _              -> raise (Failure "huh ?") in
+ 		Connections.fire_watches cons (snd op) recurse in
+ 	List.iter (fun op -> do_op_watch op cons) ops
+@@ -83,7 +83,7 @@ let do_debug con t domains cons data =
+ 	then None
+ 	else try match split None '\000' data with
+ 	| "print" :: msg :: _ ->
+-		Logging.xb_op ~tid:0 ~ty:Xb.Op.Debug ~con:"=======>" msg;
++		Logging.xb_op ~tid:0 ~ty:Xenbus.Xb.Op.Debug ~con:"=======>" msg;
+ 		None
+ 	| "quota" :: domid :: _ ->
+ 		let domid = int_of_string domid in
+@@ -120,7 +120,7 @@ let do_watch con t rid domains cons data
+ 		| _                   -> raise Invalid_Cmd_Args
+ 		in
+ 	let watch = Connections.add_watch cons con node token in
+-	Connection.send_ack con (Transaction.get_id t) rid Xb.Op.Watch;
++	Connection.send_ack con (Transaction.get_id t) rid Xenbus.Xb.Op.Watch;
+ 	Connection.fire_single_watch watch
+ 
+ let do_unwatch con t domains cons data =
+@@ -165,7 +165,7 @@ let do_introduce con t domains cons data
+ 		if Domains.exist domains domid then
+ 			Domains.find domains domid
+ 		else try
+-			let ndom = Xc.with_intf (fun xc ->
++			let ndom = Xenctrl.with_intf (fun xc ->
+ 				Domains.create xc domains domid mfn port) in
+ 			Connections.add_domain cons ndom;
+ 			Connections.fire_spec_watches cons "@introduceDomain";
+@@ -299,25 +299,25 @@ let reply_none fct ty con t rid doms con
+ 
+ let function_of_type ty =
+ 	match ty with
+-	| Xb.Op.Debug             -> reply_data_or_ack do_debug
+-	| Xb.Op.Directory         -> reply_data do_directory
+-	| Xb.Op.Read              -> reply_data do_read
+-	| Xb.Op.Getperms          -> reply_data do_getperms
+-	| Xb.Op.Watch             -> reply_none do_watch
+-	| Xb.Op.Unwatch           -> reply_ack do_unwatch
+-	| Xb.Op.Transaction_start -> reply_data do_transaction_start
+-	| Xb.Op.Transaction_end   -> reply_ack do_transaction_end
+-	| Xb.Op.Introduce         -> reply_ack do_introduce
+-	| Xb.Op.Release           -> reply_ack do_release
+-	| Xb.Op.Getdomainpath     -> reply_data do_getdomainpath
+-	| Xb.Op.Write             -> reply_ack do_write
+-	| Xb.Op.Mkdir             -> reply_ack do_mkdir
+-	| Xb.Op.Rm                -> reply_ack do_rm
+-	| Xb.Op.Setperms          -> reply_ack do_setperms
+-	| Xb.Op.Isintroduced      -> reply_data do_isintroduced
+-	| Xb.Op.Resume            -> reply_ack do_resume
+-	| Xb.Op.Set_target        -> reply_ack do_set_target
+-	| Xb.Op.Restrict          -> reply_ack do_restrict
++	| Xenbus.Xb.Op.Debug             -> reply_data_or_ack do_debug
++	| Xenbus.Xb.Op.Directory         -> reply_data do_directory
++	| Xenbus.Xb.Op.Read              -> reply_data do_read
++	| Xenbus.Xb.Op.Getperms          -> reply_data do_getperms
++	| Xenbus.Xb.Op.Watch             -> reply_none do_watch
++	| Xenbus.Xb.Op.Unwatch           -> reply_ack do_unwatch
++	| Xenbus.Xb.Op.Transaction_start -> reply_data do_transaction_start
++	| Xenbus.Xb.Op.Transaction_end   -> reply_ack do_transaction_end
++	| Xenbus.Xb.Op.Introduce         -> reply_ack do_introduce
++	| Xenbus.Xb.Op.Release           -> reply_ack do_release
++	| Xenbus.Xb.Op.Getdomainpath     -> reply_data do_getdomainpath
++	| Xenbus.Xb.Op.Write             -> reply_ack do_write
++	| Xenbus.Xb.Op.Mkdir             -> reply_ack do_mkdir
++	| Xenbus.Xb.Op.Rm                -> reply_ack do_rm
++	| Xenbus.Xb.Op.Setperms          -> reply_ack do_setperms
++	| Xenbus.Xb.Op.Isintroduced      -> reply_data do_isintroduced
++	| Xenbus.Xb.Op.Resume            -> reply_ack do_resume
++	| Xenbus.Xb.Op.Set_target        -> reply_ack do_set_target
++	| Xenbus.Xb.Op.Restrict          -> reply_ack do_restrict
+ 	| _                       -> reply_ack do_error
+ 
+ let input_handle_error ~cons ~doms ~fct ~ty ~con ~t ~rid ~data =
+@@ -370,11 +370,11 @@ let write_answer_log ~ty ~tid ~con ~data
+ let do_input store cons doms con =
+ 	if Connection.do_input con then (
+ 		let packet = Connection.pop_in con in
+-		let tid, rid, ty, data = Xb.Packet.unpack packet in
++		let tid, rid, ty, data = Xenbus.Xb.Packet.unpack packet in
+ 		(* As we don't log IO, do not call an unnecessary sanitize_data 
+ 		   Logs.info "io" "[%s] -> [%d] %s \"%s\""
+ 		         (Connection.get_domstr con) tid
+-		         (Xb.Op.to_string ty) (sanitize_data data); *)
++		         (Xenbus.Xb.Op.to_string ty) (sanitize_data data); *)
+ 		process_packet ~store ~cons ~doms ~con ~tid ~rid ~ty ~data;
+ 		write_access_log ~ty ~tid ~con ~data;
+ 		Connection.incr_ops con;
+@@ -384,11 +384,11 @@ let do_output store cons doms con =
+ 	if Connection.has_output con then (
+ 		if Connection.has_new_output con then (
+ 			let packet = Connection.peek_output con in
+-			let tid, rid, ty, data = Xb.Packet.unpack packet in
++			let tid, rid, ty, data = Xenbus.Xb.Packet.unpack packet in
+ 			(* As we don't log IO, do not call an unnecessary sanitize_data 
+ 			   Logs.info "io" "[%s] <- %s \"%s\""
+ 			         (Connection.get_domstr con)
+-			         (Xb.Op.to_string ty) (sanitize_data data);*)
++			         (Xenbus.Xb.Op.to_string ty) (sanitize_data data);*)
+ 			write_answer_log ~ty ~tid ~con ~data;
+ 		);
+ 		ignore (Connection.do_output con)
+diff --git a/tools/ocaml/xenstored/quota.ml b/tools/ocaml/xenstored/quota.ml
+--- a/tools/ocaml/xenstored/quota.ml
++++ b/tools/ocaml/xenstored/quota.ml
+@@ -26,7 +26,7 @@ let maxsize = ref (4096)
+ type t = {
+ 	maxent: int;               (* max entities per domU *)
+ 	maxsize: int;              (* max size of data store in one node *)
+-	cur: (Xc.domid, int) Hashtbl.t; (* current domains quota *)
++	cur: (Xenctrl.domid, int) Hashtbl.t; (* current domains quota *)
+ }
+ 
+ let to_string quota domid =
+diff --git a/tools/ocaml/xenstored/transaction.ml b/tools/ocaml/xenstored/transaction.ml
+--- a/tools/ocaml/xenstored/transaction.ml
++++ b/tools/ocaml/xenstored/transaction.ml
+@@ -74,7 +74,7 @@ type ty = No | Full of (int * Store.Node
+ type t = {
+ 	ty: ty;
+ 	store: Store.t;
+-	mutable ops: (Xb.Op.operation * Store.Path.t) list;
++	mutable ops: (Xenbus.Xb.Op.operation * Store.Path.t) list;
+ 	mutable read_lowpath: Store.Path.t option;
+ 	mutable write_lowpath: Store.Path.t option;
+ }
+@@ -105,23 +105,23 @@ let write t perm path value =
+ 	if path_exists
+ 	then set_write_lowpath t path
+ 	else set_write_lowpath t (Store.Path.get_parent path);
+-	add_wop t Xb.Op.Write path
++	add_wop t Xenbus.Xb.Op.Write path
+ 
+ let mkdir ?(with_watch=true) t perm path =
+ 	Store.mkdir t.store perm path;
+ 	set_write_lowpath t path;
+ 	if with_watch then
+-		add_wop t Xb.Op.Mkdir path
++		add_wop t Xenbus.Xb.Op.Mkdir path
+ 
+ let setperms t perm path perms =
+ 	Store.setperms t.store perm path perms;
+ 	set_write_lowpath t path;
+-	add_wop t Xb.Op.Setperms path
++	add_wop t Xenbus.Xb.Op.Setperms path
+ 
+ let rm t perm path =
+ 	Store.rm t.store perm path;
+ 	set_write_lowpath t (Store.Path.get_parent path);
+-	add_wop t Xb.Op.Rm path
++	add_wop t Xenbus.Xb.Op.Rm path
+ 
+ let ls t perm path =	
+ 	let r = Store.ls t.store perm path in
+diff --git a/tools/ocaml/xenstored/xenstored.ml b/tools/ocaml/xenstored/xenstored.ml
+--- a/tools/ocaml/xenstored/xenstored.ml
++++ b/tools/ocaml/xenstored/xenstored.ml
+@@ -35,7 +35,7 @@ let process_connection_fds store cons do
+ 			if err <> Unix.ECONNRESET then
+ 			error "closing socket connection: read error: %s"
+ 			      (Unix.error_message err)
+-		| Xb.End_of_file ->
++		| Xenbus.Xb.End_of_file ->
+ 			Connections.del_anonymous cons c;
+ 			debug "closing socket connection"
+ 		in
+@@ -170,7 +170,7 @@ let from_channel_f chan domain_f watch_f
+ let from_channel store cons doms chan =
+ 	(* don't let the permission get on our way, full perm ! *)
+ 	let op = Store.get_ops store Perms.Connection.full_rights in
+-	let xc = Xc.interface_open () in
++	let xc = Xenctrl.interface_open () in
+ 
+ 	let domain_f domid mfn port =
+ 		let ndom =
+@@ -190,7 +190,7 @@ let from_channel store cons doms chan =
+ 		op.Store.setperms path perms
+ 		in
+ 	finally (fun () -> from_channel_f chan domain_f watch_f store_f)
+-	        (fun () -> Xc.interface_close xc)
++	        (fun () -> Xenctrl.interface_close xc)
+ 
+ let from_file store cons doms file =
+ 	let channel = open_in file in
+@@ -282,7 +282,7 @@ let _ =
+ 			Store.mkdir store (Perms.Connection.create 0) localpath;
+ 
+ 		if cf.domain_init then (
+-			let usingxiu = Xc.is_fake () in
++			let usingxiu = Xenctrl.is_fake () in
+ 			Connections.add_domain cons (Domains.create0 usingxiu domains);
+ 			Event.bind_dom_exc_virq eventchn
+ 		);
+@@ -301,7 +301,7 @@ let _ =
+ 		(if cf.domain_init then [ Event.fd eventchn ] else [])
+ 		in
+ 
+-	let xc = Xc.interface_open () in
++	let xc = Xenctrl.interface_open () in
+ 
+ 	let process_special_fds rset =
+ 		let accept_connection can_write fd =

@@ -1,0 +1,48 @@
+# HG changeset patch
+# Parent 28cc917e75e75bc6f3143002e96d9d03609df2ac
+
+diff -r 28cc917e75e7 mk/xen-4.1.spec.in
+--- a/mk/xen-4.1.spec.in	Tue Mar 13 09:02:54 2012 +0000
++++ b/mk/xen-4.1.spec.in	Tue Mar 13 09:16:11 2012 +0000
+@@ -160,6 +160,7 @@ rm -rf $RPM_BUILD_ROOT
+ %{_libdir}/libxenctrl*.so.*
+ %{_libdir}/libxenguest*.so.*
+ %{_libdir}/libxenstore*.so.*
++%{_libdir}/libxenvchan*.so.*
+ %{_libdir}/libxenlight*.so.*
+ %{_libdir}/libxlutil*.so.*
+ %{_libdir}/libfsimage*.so.*
+@@ -200,6 +201,7 @@ rm -rf $RPM_BUILD_ROOT
+ %{_libdir}/libxenctrl*.so
+ %{_libdir}/libxenguest*.so
+ %{_libdir}/libxenstore*.so
++%{_libdir}/libxenvchan*.so
+ %{_libdir}/libfsimage*.so
+ %{_libdir}/libxenlight*.so
+ %{_libdir}/libxlutil*.so
+@@ -219,4 +221,5 @@ rm -rf $RPM_BUILD_ROOT
+ %{_includedir}/libxl.h
+ %{_includedir}/libxl_uuid.h
+ %{_includedir}/_libxl_types.h
++%{_includedir}/libxenvchan.h
+ %changelog
+diff -r 28cc917e75e7 tools/libvchan/Makefile
+--- a/tools/libvchan/Makefile	Tue Mar 13 09:02:54 2012 +0000
++++ b/tools/libvchan/Makefile	Tue Mar 13 09:16:11 2012 +0000
+@@ -20,7 +20,7 @@ MINOR = 0
+ CFLAGS += -I../include -I.
+ 
+ .PHONY: all
+-all: libxenvchan.so vchan-node1 vchan-node2 libxenvchan.a
++all: libxenvchan.so
+ 
+ libxenvchan.so: libxenvchan.so.$(MAJOR)
+ 	ln -sf $< $@
+@@ -48,7 +48,6 @@ install: all
+ 	ln -sf libxenvchan.so.$(MAJOR).$(MINOR) $(DESTDIR)$(LIBDIR)/libxenvchan.so.$(MAJOR)
+ 	ln -sf libxenvchan.so.$(MAJOR) $(DESTDIR)$(LIBDIR)/libxenvchan.so
+ 	$(INSTALL_DATA) libxenvchan.h $(DESTDIR)$(INCLUDEDIR)
+-	$(INSTALL_DATA) libxenvchan.a $(DESTDIR)$(LIBDIR)
+ 
+ .PHONY: clean
+ clean:

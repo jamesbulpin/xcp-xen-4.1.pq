@@ -1,0 +1,44 @@
+# HG changeset patch
+# Parent 26cfb4064c32a506a6a1beaa8e7e532f24f61775
+Build: Prune unwanted binaries from installation
+
+-miscellaneous tools, most notably xm
+-libxc save/restore helpers
+-xenstore diagnostic helper
+
+diff -r 26cfb4064c32 tools/misc/Makefile
+--- a/tools/misc/Makefile	Wed Feb 29 17:11:10 2012 +0000
++++ b/tools/misc/Makefile	Wed Feb 29 17:14:27 2012 +0000
+@@ -23,7 +23,7 @@ INSTALL_BIN-y := xencons
+ INSTALL_BIN-$(CONFIG_X86) += xen-detect
+ INSTALL_BIN := $(INSTALL_BIN-y)
+ 
+-INSTALL_SBIN-y := xm xen-bugtool xen-python-path xend xenperf xsview xenpm xen-tmem-list-parse gtraceview gtracestat xenlockprof xenwatchdogd xen-ringwatch
++INSTALL_SBIN-y := xen-python-path xenperf xenpm xenwatchdogd xen-ringwatch
+ INSTALL_SBIN-$(CONFIG_X86) += xen-hvmctx xen-hvmcrash
+ INSTALL_SBIN-$(CONFIG_MIGRATE) += xen-hptool
+ INSTALL_SBIN := $(INSTALL_SBIN-y)
+diff -r 26cfb4064c32 tools/xcutils/Makefile
+--- a/tools/xcutils/Makefile	Wed Feb 29 17:11:10 2012 +0000
++++ b/tools/xcutils/Makefile	Wed Feb 29 17:14:27 2012 +0000
+@@ -14,7 +14,7 @@ include $(XEN_ROOT)/tools/Rules.mk
+ CFLAGS += -Werror
+ CFLAGS += $(CFLAGS_libxenctrl) $(CFLAGS_libxenguest) $(CFLAGS_libxenstore)
+ 
+-PROGRAMS = xc_restore xc_save readnotes lsevtchn
++PROGRAMS = readnotes lsevtchn
+ 
+ LDLIBS   = $(LDLIBS_libxenctrl) $(LDLIBS_libxenguest) $(LDLIBS_libxenstore)
+ 
+diff -r 26cfb4064c32 tools/xenstore/Makefile
+--- a/tools/xenstore/Makefile	Wed Feb 29 17:11:10 2012 +0000
++++ b/tools/xenstore/Makefile	Wed Feb 29 17:14:27 2012 +0000
+@@ -26,7 +26,7 @@ LIBXENSTORE := libxenstore.a
+ xenstore xenstore-control: CFLAGS += -static
+ endif
+ 
+-ALL_TARGETS = libxenstore.so libxenstore.a clients xs_tdb_dump xenstored
++ALL_TARGETS = libxenstore.so libxenstore.a clients xenstored
+ 
+ .PHONY: all
+ all: $(ALL_TARGETS)

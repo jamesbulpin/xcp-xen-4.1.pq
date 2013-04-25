@@ -1,0 +1,48 @@
+diff -r cc396036a456 tools/firmware/etherboot/ipxe-v1.0.0/src/core/settings.c
+--- a/tools/firmware/etherboot/ipxe-v1.0.0/src/core/settings.c	Wed Feb 15 09:33:29 2012 +0000
++++ b/tools/firmware/etherboot/ipxe-v1.0.0/src/core/settings.c	Wed Feb 15 09:37:19 2012 +0000
+@@ -237,7 +237,7 @@ struct generic_settings generic_settings
+  * @v name		Name within this parent
+  * @ret settings	Settings block, or NULL
+  */
+-static struct settings * find_child_settings ( struct settings *parent,
++struct settings * find_child_settings ( struct settings *parent,
+ 					       const char *name ) {
+ 	struct settings *settings;
+ 
+diff -r cc396036a456 tools/firmware/etherboot/ipxe-v1.0.0/src/include/gpxe/settings.h
+--- a/tools/firmware/etherboot/ipxe-v1.0.0/src/include/gpxe/settings.h	Wed Feb 15 09:33:29 2012 +0000
++++ b/tools/firmware/etherboot/ipxe-v1.0.0/src/include/gpxe/settings.h	Wed Feb 15 09:37:19 2012 +0000
+@@ -209,6 +209,8 @@ extern int fetch_uuid_setting ( struct s
+ extern void clear_settings ( struct settings *settings );
+ extern int setting_cmp ( struct setting *a, struct setting *b );
+ 
++extern struct settings * find_child_settings ( struct settings *parent,
++						const char *name );
+ extern struct settings * find_settings ( const char *name );
+ 
+ extern int storef_setting ( struct settings *settings,
+diff -r cc396036a456 tools/firmware/etherboot/ipxe-v1.0.0/src/usr/autoboot.c
+--- a/tools/firmware/etherboot/ipxe-v1.0.0/src/usr/autoboot.c	Wed Feb 15 09:33:29 2012 +0000
++++ b/tools/firmware/etherboot/ipxe-v1.0.0/src/usr/autoboot.c	Wed Feb 15 09:37:19 2012 +0000
+@@ -167,9 +167,18 @@ static int netboot ( struct net_device *
+ 	fetch_ipv4_setting ( NULL, &next_server_setting, &next_server );
+ 	fetch_string_setting ( NULL, &filename_setting, buf, sizeof ( buf ) );
+ 	if ( buf[0] ) {
++		struct settings *dhcpset;
+ 		printf ( "Booting from filename \"%s\"\n", buf );
+-		if ( ( rc = boot_next_server_and_filename ( next_server,
+-							    buf ) ) != 0 ) {
++		rc = boot_next_server_and_filename ( next_server, buf );
++		if ( ( dhcpset = find_child_settings (
++				netdev_settings(netdev),
++				DHCP_SETTINGS_NAME) ))
++			unregister_settings ( dhcpset );
++		if ( ( dhcpset = find_child_settings (
++				netdev_settings(netdev),
++				PROXYDHCP_SETTINGS_NAME) ))
++			unregister_settings ( dhcpset );
++		if ( rc ) {
+ 			printf ( "Could not boot from filename \"%s\": %s\n",
+ 				 buf, strerror ( rc ) );
+ 			return rc;

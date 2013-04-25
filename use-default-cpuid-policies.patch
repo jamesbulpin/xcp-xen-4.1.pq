@@ -1,0 +1,67 @@
+Until the xapi toolstack learns to drive the CPUID policy interface,
+hard-wide libxc's default policy into every new domain
+
+diff -r 100d2db8682a tools/libxc/Makefile
+--- a/tools/libxc/Makefile	Tue Apr 05 18:06:41 2011 +0100
++++ b/tools/libxc/Makefile	Fri Apr 08 16:05:35 2011 +0100
+@@ -34,6 +34,7 @@
+ CTRL_SRCS-y       += xc_foreign_memory.c
+ CTRL_SRCS-y       += xtl_core.c
+ CTRL_SRCS-y       += xtl_logger_stdio.c
++CTRL_SRCS-$(CONFIG_X86) += xc_cpuid_x86.c
+ CTRL_SRCS-$(CONFIG_X86) += xc_pagetab.c
+ CTRL_SRCS-$(CONFIG_Linux) += xc_linux.c xc_linux_osdep.c
+ CTRL_SRCS-$(CONFIG_SunOS) += xc_solaris.c
+@@ -60,7 +61,6 @@
+ GUEST_SRCS-y                 += xc_dom_compat_linux.c
+ 
+ GUEST_SRCS-$(CONFIG_X86)     += xc_dom_x86.c
+-GUEST_SRCS-$(CONFIG_X86)     += xc_cpuid_x86.c
+ GUEST_SRCS-$(CONFIG_IA64)    += xc_dom_ia64.c
+ 
+ OSDEP_SRCS-y                 += xenctrl_osdep_ENOSYS.c
+diff -r 100d2db8682a tools/libxc/xc_dom_boot.c
+--- a/tools/libxc/xc_dom_boot.c	Tue Apr 05 18:06:41 2011 +0100
++++ b/tools/libxc/xc_dom_boot.c	Fri Apr 08 16:05:35 2011 +0100
+@@ -264,6 +264,10 @@
+     if ( (rc = arch_setup_bootlate(dom)) != 0 )
+         return rc;
+ 
++    /* CPUID-mangling policy */
++    if ( (rc = xc_cpuid_apply_policy(dom->xch, dom->guest_domid)) != 0 )
++        return rc;
++
+     /* let the vm run */
+     memset(ctxt, 0, sizeof(ctxt));
+     if ( (rc = dom->arch_hooks->vcpu(dom, ctxt)) != 0 )
+diff -r 100d2db8682a tools/libxc/xc_domain_restore.c
+--- a/tools/libxc/xc_domain_restore.c	Tue Apr 05 18:06:41 2011 +0100
++++ b/tools/libxc/xc_domain_restore.c	Fri Apr 08 16:05:35 2011 +0100
+@@ -1726,6 +1726,11 @@
+     rc = 0;
+ 
+  out:
++
++    /* Reinstate the CPUID-mangling policy */
++    if ( rc == 0 )
++        rc = xc_cpuid_apply_policy(xch, dom);
++
+     if ( (rc != 0) && (dom != 0) )
+         xc_domain_destroy(xch, dom);
+     xc_hypercall_buffer_free(xch, ctxt);
+diff -r 100d2db8682a tools/libxc/xc_hvm_build.c
+--- a/tools/libxc/xc_hvm_build.c	Tue Apr 05 18:06:41 2011 +0100
++++ b/tools/libxc/xc_hvm_build.c	Fri Apr 08 16:05:35 2011 +0100
+@@ -356,6 +356,12 @@
+     xc_set_hvm_param(xch, dom, HVM_PARAM_CONSOLE_PFN,
+                      special_pfn(SPECIALPAGE_CONSOLE));
+ 
++    if ( xc_cpuid_apply_policy(xch, dom) != 0 )
++    {
++        PERROR("Could not set default CPUID policy for HVM guest.\n");
++        goto error_out;
++    }
++
+     /*
+      * Identity-map page table is required for running with CR0.PG=0 when
+      * using Intel EPT. Create a 32-bit non-PAE page directory of superpages.

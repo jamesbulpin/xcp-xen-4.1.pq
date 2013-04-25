@@ -1,0 +1,26 @@
+# HG changeset patch
+# User George Dunlap <george.dunlap@eu.citrix.com>
+# Date 1331106129 0
+# Node ID 0f51f175fb5757cca6cb319ef3709c2ffbd26280
+# Parent  f29e4080ea6bcdb6838a24db5e840c9caa98eee5
+build: Add xenversion as a top-level target
+
+We already have xenversion as a target in the xen subdirectory;
+simply extend it so that "make xenversion" does what you'd expect.
+
+Signed-off-by: George Dunlap <george.dunlap@eu.citrix.com>
+Committed-by: Keir Fraser <keir@xen.org>
+
+diff --git a/Makefile b/Makefile
+--- a/Makefile
++++ b/Makefile
+@@ -257,6 +257,9 @@ uninstall:
+ linux26:
+ 	$(MAKE) 'KERNELS=linux-2.6*' kernels
+ 
++.PHONY: xenversion
++xenversion:
++	@$(MAKE) --no-print-directory -C xen xenversion
+ 
+ #
+ # tboot targets

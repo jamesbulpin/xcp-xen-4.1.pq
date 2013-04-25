@@ -1,0 +1,106 @@
+# HG changeset patch
+# Parent e609880283826cff5cfe84ba8c3142c12e4dc587
+
+diff -r e60988028382 tools/firmware/etherboot/ipxe-v1.0.0/src/net/udp/dhcp.c
+--- a/tools/firmware/etherboot/ipxe-v1.0.0/src/net/udp/dhcp.c	Mon Mar 19 09:39:24 2012 +0000
++++ b/tools/firmware/etherboot/ipxe-v1.0.0/src/net/udp/dhcp.c	Mon Mar 19 10:15:58 2012 +0000
+@@ -234,7 +234,7 @@ struct dhcp_offer {
+ };
+ 
+ /** Maximum number of DHCP offers to queue */
+-#define DHCP_MAX_OFFERS   6
++#define DHCP_MAX_OFFERS   12
+ 
+ /** A DHCP session */
+ struct dhcp_session {
+@@ -401,7 +401,7 @@ static void dhcp_rx_offer ( struct dhcp_
+ 	int has_pxeclient;
+ 	int pxeopts_len;
+ 	int has_pxeopts;
+-	struct dhcp_offer *offer;
++	struct dhcp_offer *offer, curr_offer;
+ 	int i;
+ 
+ 	DBGC ( dhcp, "DHCP %p %s from %s:%d", dhcp,
+@@ -424,38 +424,14 @@ static void dhcp_rx_offer ( struct dhcp_
+ 	pxeopts_len = dhcppkt_fetch ( dhcppkt, DHCP_PXE_BOOT_MENU, NULL, 0 );
+ 	has_pxeopts = ( pxeopts_len >= 0 );
+ 
+-	/* Enqueue an offer to be filled in */
+-	for ( i = 0 ; i < DHCP_MAX_OFFERS ; i++ ) {
+-		if ( ! dhcp->offers[i].valid )
+-			break;
+-
+-		if ( dhcp->offers[i].server.s_addr == server_id.s_addr ) {
+-            if ( (has_pxeclient && has_pxeopts) ==
+-				 !!(dhcp->offers[i].valid & DHCP_OFFER_PXE) ) {
+-				DBGC ( dhcp, " dup\n" );
+-				return;
+-            }
+-		}
+-	}
+-	if ( i == DHCP_MAX_OFFERS ) {
+-		DBGC ( dhcp, " dropped\n" );
+-		return;
+-	}
+-	
+-	offer = &dhcp->offers[i];
++	memset ( &curr_offer, 0, sizeof ( curr_offer ) );
++	offer = &curr_offer;
+ 	offer->server = server_id;
+ 	offer->ip = dhcppkt->dhcphdr->yiaddr;
+-	
++
+ 	if ( has_pxeclient )
+ 		DBGC ( dhcp, "%s", ( has_pxeopts ? " pxe" : " proxy" ) );
+ 
+-	if ( has_pxeclient && has_pxeopts ) {
+-		/* Save reference to packet for future use */
+-		if ( offer->pxe )
+-			dhcppkt_put ( offer->pxe );
+-		offer->pxe = dhcppkt_get ( dhcppkt );
+-	}
+-
+ 	/* Identify priority */
+ 	dhcppkt_fetch ( dhcppkt, DHCP_EB_PRIORITY, &offer->priority,
+ 			sizeof ( offer->priority ) );
+@@ -477,6 +453,39 @@ static void dhcp_rx_offer ( struct dhcp_
+ 
+ 	if ( has_pxeclient && ( msgtype == DHCPOFFER ) )
+ 		offer->valid |= DHCP_OFFER_PXE;
++
++	/* ignore invalid offers */
++	if ( ! offer->valid )
++		return;
++
++	/* Enqueue an offer to be filled in */
++	for ( i = 0 ; i < DHCP_MAX_OFFERS ; i++ ) {
++		if ( ! dhcp->offers[i].valid )
++			break;
++
++		if ( dhcp->offers[i].server.s_addr == server_id.s_addr ) {
++			if ( offer->valid == dhcp->offers[i].valid ) {
++				DBGC ( dhcp, " dup\n" );
++				return;
++			}
++		}
++	}
++	if ( i == DHCP_MAX_OFFERS ) {
++		DBGC ( dhcp, " dropped\n" );
++		return;
++	}
++
++	/* copy our offer */
++	offer = &dhcp->offers[i];
++	if ( offer->pxe )
++		dhcppkt_put ( offer->pxe );
++	offer-> pxe = NULL;
++	*offer = curr_offer;
++
++	if ( has_pxeclient && has_pxeopts ) {
++		/* Save reference to packet for future use */
++		offer->pxe = dhcppkt_get ( dhcppkt );
++	}
+ }
+ 
+ /**

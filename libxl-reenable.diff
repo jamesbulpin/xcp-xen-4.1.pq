@@ -1,0 +1,14 @@
+# HG changeset patch
+# Parent eede11fd9d98df17096ab25902867f4abf6c1893
+
+diff -r eede11fd9d98 tools/Makefile
+--- a/tools/Makefile	Wed Feb 22 16:42:56 2012 +0000
++++ b/tools/Makefile	Wed Feb 22 16:43:17 2012 +0000
+@@ -28,6 +28,7 @@ SUBDIRS-$(CONFIG_IOEMU) += ioemu-dir
+ endif
+ 
+ SUBDIRS-y += xenpmd
++SUBDIRS-y += libxl
+ SUBDIRS-$(CONFIG_X86) += xenpaging
+ SUBDIRS-$(CONFIG_X86) += debugger/kdd
+ 

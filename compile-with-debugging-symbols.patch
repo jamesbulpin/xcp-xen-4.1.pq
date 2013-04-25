@@ -1,0 +1,15 @@
+Compile with -g even for non-debug builds
+
+diff -r 12757c339acd Config.mk
+--- a/Config.mk	Wed Oct 05 16:37:34 2011 +0100
++++ b/Config.mk	Wed Oct 05 16:37:40 2011 +0100
+@@ -144,9 +144,7 @@ define buildmakevars2file-closure
+ 	if ! cmp $(1).tmp $(1); then mv -f $(1).tmp $(1); fi
+ endef
+ 
+-ifeq ($(debug),y)
+ CFLAGS += -g
+-endif
+ 
+ CFLAGS += -fno-strict-aliasing
+ 

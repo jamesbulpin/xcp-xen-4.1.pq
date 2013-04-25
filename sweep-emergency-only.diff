@@ -1,0 +1,22 @@
+xen,pod: Only sweep for 4k pages in emergency
+
+Early sweeping for 4k pages causes superpages to be broken
+up unnecessarily.  Only sweep if we're really out of memory.
+
+Signed-off-by: George Dunlap <george.dunlap@eu.citrix.com>
+
+diff -r 148e9ada4f0a -r d3d47ace00de xen/arch/x86/mm/p2m.c
+--- a/xen/arch/x86/mm/p2m.c	Fri Jun 10 12:24:10 2011 +0100
++++ b/xen/arch/x86/mm/p2m.c	Fri Jun 10 12:35:36 2011 +0100
+@@ -1213,10 +1213,7 @@ p2m_pod_demand_populate(struct p2m_domai
+      * Sweep for 4k pages if:
+      *  - 4k list is empty and we're looking for a 4k page
+      *  - We're looking for a 2MiB page but both lists are empty */
+-    if ( p2m->pod.entry_count > p2m->pod.count
+-         && page_list_empty(&p2m->pod.single) 
+-         && ( ( order == 0 ) 
+-              || (order == 9 && page_list_empty(&p2m->pod.super) ) ) )
++    if ( p2m->pod.count == 0 )
+         p2m_pod_emergency_sweep(p2m);
+ 
+     /* Keep track of the highest gfn demand-populated by a guest fault */

@@ -1,0 +1,63 @@
+# HG changeset patch
+# Parent a18422fa45f2b4d4b32ef6cc6a34d885eb1082d4
+diff -r a18422fa45f2 -r 9fef218424f5 tools/libxc/xc_domain_restore.c
+--- a/tools/libxc/xc_domain_restore.c	Thu May 05 10:51:34 2011 +0100
++++ b/tools/libxc/xc_domain_restore.c	Thu May 05 10:54:25 2011 +0100
+@@ -757,6 +757,7 @@
+                        pagebuf_t* pagebuf, int curbatch, int superpages)
+ {
+     int i, j, curpage, nr_mfns;
++    int mfns_needed, mfns_allocated;
+     int k, scount;
+     unsigned long superpage_start=INVALID_P2M_ENTRY;
+     /* used by debug verify code */
+@@ -778,6 +779,7 @@
+ 
+     /* First pass for this batch: work out how much memory to alloc, and detect superpages */
+     nr_mfns = scount = 0;
++    mfns_needed = mfns_allocated = 0;
+     for ( i = 0; i < j; i++ )
+     {
+         unsigned long pfn, pagetype;
+@@ -788,6 +790,7 @@
+              (ctx->p2m[pfn] == INVALID_P2M_ENTRY) )
+         {
+             /* Have a live PFN which hasn't had an MFN allocated */
++            mfns_needed++;
+ 
+             /* Logic if we're in the middle of detecting a candidate superpage */
+             if ( superpage_start != INVALID_P2M_ENTRY )
+@@ -828,6 +831,7 @@
+                             /* We just allocated a new mfn above; update p2m */
+                             ctx->p2m[superpage_start+k] = supermfn+k;
+                             ctx->nr_pfns++;
++                            mfns_allocated++;
+                             /* region_map[] will be set below */
+                         }
+                         superpage_start=INVALID_P2M_ENTRY;
+@@ -873,6 +877,25 @@
+         superpage_start = INVALID_P2M_ENTRY;
+     }
+ 
++    /* Sanity check to make sure we did our math right */
++    if ( mfns_needed != mfns_allocated + nr_mfns )
++    {
++        ERROR("needed %d mfns, only counted %d (%d + %d)\n",
++              mfns_needed, mfns_allocated+nr_mfns, mfns_allocated, nr_mfns);
++        for ( i = 0; i < j; i++ )
++        {
++            unsigned long pfn, pagetype;
++            pfn      = pagebuf->pfn_types[i + curbatch] & ~XEN_DOMCTL_PFINFO_LTAB_MASK;
++            pagetype = pagebuf->pfn_types[i + curbatch] &  XEN_DOMCTL_PFINFO_LTAB_MASK;
++            
++            if ( (pagetype != XEN_DOMCTL_PFINFO_XTAB) )
++                DPRINTF(" pfn 0x%lx p2m 0x%lx\n",
++                        pfn, ctx->p2m[pfn]);
++            else
++                DPRINTF(" pfn 0x%lx PFINFO_XTAB", pfn);
++        }
++    }
++
+     /* Now allocate a bunch of mfns for this batch */
+     if ( nr_mfns )
+     {

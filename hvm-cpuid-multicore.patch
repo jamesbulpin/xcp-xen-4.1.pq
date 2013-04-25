@@ -1,0 +1,204 @@
+Expose vcpus as multiple cores in a smaller number of sockets,
+by adjusting the cpuid responses appropriately.
+
+diff -r d018017b1018 tools/libxc/xc_domain.c
+--- a/tools/libxc/xc_domain.c	Mon Jun 20 16:42:07 2011 +0100
++++ b/tools/libxc/xc_domain.c	Mon Jun 20 16:56:16 2011 +0100
+@@ -597,6 +597,17 @@ int xc_domain_get_tsc_info(xc_interface 
+ }
+ 
+ 
++int xc_domain_set_cores_per_socket(xc_interface *xch,
++                                   uint32_t domid,
++                                   uint32_t cores_per_socket)
++{
++    DECLARE_DOMCTL;
++    domctl.cmd = XEN_DOMCTL_setcorespersocket;
++    domctl.domain = (domid_t)domid;
++    domctl.u.setcorespersocket.cores_per_socket = cores_per_socket;
++    return do_domctl(xch, &domctl);
++}
++
+ int xc_domain_maximum_gpfn(xc_interface *xch, domid_t domid)
+ {
+     return do_memory_op(xch, XENMEM_maximum_gpfn, &domid, sizeof(domid));
+diff -r d018017b1018 tools/libxc/xenctrl.h
+--- a/tools/libxc/xenctrl.h	Mon Jun 20 16:42:07 2011 +0100
++++ b/tools/libxc/xenctrl.h	Mon Jun 20 16:56:16 2011 +0100
+@@ -1009,6 +1009,10 @@ int xc_domain_get_tsc_info(xc_interface 
+ 
+ int xc_domain_disable_migrate(xc_interface *xch, uint32_t domid);
+ 
++int xc_domain_set_cores_per_socket(xc_interface *xch,
++				   uint32_t domid,
++				   uint32_t cores_per_socket);
++ 
+ int xc_domain_maximum_gpfn(xc_interface *xch, domid_t domid);
+ 
+ int xc_domain_increase_reservation(xc_interface *xch,
+diff -r d018017b1018 xen/arch/x86/hvm/svm/svm.c
+--- a/xen/arch/x86/hvm/svm/svm.c	Mon Jun 20 16:42:07 2011 +0100
++++ b/xen/arch/x86/hvm/svm/svm.c	Mon Jun 20 16:56:16 2011 +0100
+@@ -999,14 +999,39 @@ static void svm_cpuid_intercept(
+ {
+     unsigned int input = *eax;
+     struct vcpu *v = current;
++    unsigned int cores_per_socket = current->domain->cores_per_socket;
+ 
+     hvm_cpuid(input, eax, ebx, ecx, edx);
+ 
+-    if ( input == 0x80000001 )
++    switch ( input ) 
+     {
++    case 0x00000001:
++        if ( cores_per_socket > 1 ) 
++        {
++            *ebx &= 0xFF00FFFF;
++            *ebx |= (2 * cores_per_socket & 0xFF) << 16;
++            *edx |= 0x1 << 28;
++        }
++        break;
++
++    case 0x80000001:
+         /* Fix up VLAPIC details. */
+         if ( vlapic_hw_disabled(vcpu_vlapic(v)) )
+             __clear_bit(X86_FEATURE_APIC & 31, edx);
++
++        if (cores_per_socket > 1)
++            *ecx |= cpufeat_mask(X86_FEATURE_CMP_LEGACY);
++        break;
++
++    case 0x80000008:
++        /* Make sure Number of CPU core is 1 when HTT=0 */
++        *ecx &= 0xFFFF0F00;
++        if ( cores_per_socket > 1 )
++            *ecx |= (2 * cores_per_socket - 1) & 0xFF;
++        break;
++
++    default: 
++        break;
+     }
+ 
+     HVMTRACE_5D (CPUID, input, *eax, *ebx, *ecx, *edx);
+diff -r d018017b1018 xen/arch/x86/hvm/vmx/vmx.c
+--- a/xen/arch/x86/hvm/vmx/vmx.c	Mon Jun 20 16:42:07 2011 +0100
++++ b/xen/arch/x86/hvm/vmx/vmx.c	Mon Jun 20 16:56:16 2011 +0100
+@@ -1486,20 +1486,40 @@ static void vmx_cpuid_intercept(
+     unsigned int input = *eax;
+     struct segment_register cs;
+     struct vcpu *v = current;
++    unsigned int cores_per_socket = current->domain->cores_per_socket;
+ 
+     hvm_cpuid(input, eax, ebx, ecx, edx);
+ 
+     switch ( input )
+     {
+-        case 0x80000001:
+-            /* SYSCALL is visible iff running in long mode. */
+-            hvm_get_segment_register(v, x86_seg_cs, &cs);
+-            if ( cs.attr.fields.l )
+-                *edx |= cpufeat_mask(X86_FEATURE_SYSCALL);
+-            else
+-                *edx &= ~(cpufeat_mask(X86_FEATURE_SYSCALL));
+-
+-            break;
++    case 0x00000001:
++        if ( cores_per_socket > 1 )
++        {
++            /* to fake out #vcpus per socket first force on HT/MC */
++            *edx |= cpufeat_mask(X86_FEATURE_HT);
++            /* and then inform guest of #cores per package */
++            *ebx &= 0xFF00FFFF;
++            *ebx |= (((cores_per_socket * 2) & 0xFF) << 16);
++        }
++        break;
++
++    case 0x00000004:         
++        if (cores_per_socket > 1) {
++            /* fake out cores per socket */
++            *eax &= 0x3FFF; /* one thread, one core */
++            *eax |= (((cores_per_socket * 2) - 1) << 26);
++        }
++        break;
++
++    case 0x80000001:
++        /* SYSCALL is visible iff running in long mode. */
++        hvm_get_segment_register(v, x86_seg_cs, &cs);
++        if ( cs.attr.fields.l )
++            *edx |= cpufeat_mask(X86_FEATURE_SYSCALL);
++        else
++            *edx &= ~(cpufeat_mask(X86_FEATURE_SYSCALL));
++        
++        break;
+     }
+ 
+     HVMTRACE_5D (CPUID, input, *eax, *ebx, *ecx, *edx);
+diff -r d018017b1018 xen/common/domctl.c
+--- a/xen/common/domctl.c	Mon Jun 20 16:42:07 2011 +0100
++++ b/xen/common/domctl.c	Mon Jun 20 16:56:16 2011 +0100
+@@ -989,6 +989,21 @@ long do_domctl(XEN_GUEST_HANDLE(xen_domc
+         break;
+     }
+ 
++    case XEN_DOMCTL_setcorespersocket:
++    {
++        struct domain *d;
++
++        ret = -ESRCH;
++        d = rcu_lock_domain_by_id(op->domain);
++        if ( d != NULL )
++        {
++            d->cores_per_socket = op->u.setcorespersocket.cores_per_socket;
++            rcu_unlock_domain(d);
++            ret = 0;
++        }
++    }
++    break;
++
+     default:
+         ret = arch_do_domctl(op, u_domctl);
+         break;
+diff -r d018017b1018 xen/include/public/domctl.h
+--- a/xen/include/public/domctl.h	Mon Jun 20 16:42:07 2011 +0100
++++ b/xen/include/public/domctl.h	Mon Jun 20 16:56:16 2011 +0100
+@@ -870,6 +870,12 @@ DEFINE_XEN_GUEST_HANDLE(xen_domctl_runst
+ /* Some vcpus are runnable, some are blocked */
+ #define DOMAIN_RUNSTATE_partial_contention 5
+ 
++struct xen_domctl_setcorespersocket {
++    uint32_t cores_per_socket;
++};
++
++typedef struct xen_domctl_setcorespersocket xen_domctl_setcorespersocket_t;
++DEFINE_XEN_GUEST_HANDLE(xen_domctl_setcorespersocket_t);
+ 
+ struct xen_domctl {
+     uint32_t cmd;
+@@ -935,6 +941,7 @@ struct xen_domctl {
+ #define XEN_DOMCTL_getvcpuextstate               63
+ #define XEN_DOMCTL_set_access_required           64
+ #define XEN_DOMCTL_get_runstate_info             98
++#define XEN_DOMCTL_setcorespersocket             99
+ #define XEN_DOMCTL_gdbsx_guestmemio            1000
+ #define XEN_DOMCTL_gdbsx_pausevcpu             1001
+ #define XEN_DOMCTL_gdbsx_unpausevcpu           1002
+@@ -989,6 +996,7 @@ struct xen_domctl {
+ #endif
+         struct xen_domctl_set_access_required access_required;
+         struct xen_domctl_runstate_info     domain_runstate;
++        struct xen_domctl_setcorespersocket setcorespersocket;
+         struct xen_domctl_gdbsx_memio       gdbsx_guest_memio;
+         struct xen_domctl_gdbsx_pauseunp_vcpu gdbsx_pauseunp_vcpu;
+         struct xen_domctl_gdbsx_domstatus   gdbsx_domstatus;
+diff -r d018017b1018 xen/include/xen/sched.h
+--- a/xen/include/xen/sched.h	Mon Jun 20 16:42:07 2011 +0100
++++ b/xen/include/xen/sched.h	Mon Jun 20 16:56:16 2011 +0100
+@@ -339,6 +339,8 @@ struct domain
+     spinlock_t runstate_lock;
+     atomic_t runstate_missed_changes;
+     domain_runstate_info_t runstate;
++
++    unsigned int cores_per_socket;
+ };
+ 
+ struct domain_setup_info

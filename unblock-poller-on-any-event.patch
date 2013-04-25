@@ -1,0 +1,24 @@
+CA-31049: Unblock polling vcpus when any event arrives.
+
+In Xen 3.4, if a vpcu is polling for a single event-channel and an
+event arrives on a different channel, the vcpu is not woken.
+In Xen 3.3, polling vpcus were woken when _any_ event arrived.
+
+This patch reverts to the Xen 3.3 behaviour, fixing the symptoms of
+CA-31049 (dom0 deadlocking in the slow path of a ticketed spinlock when
+unplugging a vcpu).  The root cause of the bug is likely to be a race in
+the dom0 kernel's spinlock code, which was masked by Xen's generous
+wakeup policy.
+
+diff -r f22efc61d6d6 xen/common/event_channel.c
+--- a/xen/common/event_channel.c	Thu Jul 08 11:48:42 2010 +0100
++++ b/xen/common/event_channel.c	Thu Jul 08 11:48:57 2010 +0100
+@@ -564,7 +564,7 @@
+           vcpuid = find_next_bit(d->poll_mask, d->max_vcpus, vcpuid+1) )
+     {
+         v = d->vcpu[vcpuid];
+-        if ( ((v->poll_evtchn <= 0) || (v->poll_evtchn == port)) &&
++        if ( // CA-31049 ((v->poll_evtchn <= 0) || (v->poll_evtchn == port)) &&
+              test_and_clear_bit(vcpuid, d->poll_mask) )
+         {
+             v->poll_evtchn = 0;

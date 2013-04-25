@@ -1,0 +1,44 @@
+Use xenstore keys to customize the six bytes at 0xFFFEA
+
+diff -r 252cc46c6f83 tools/firmware/hvmloader/hvmloader.c
+--- a/tools/firmware/hvmloader/hvmloader.c	Thu Jul 08 16:34:53 2010 +0100
++++ b/tools/firmware/hvmloader/hvmloader.c	Fri Jul 09 10:59:01 2010 +0100
+@@ -619,6 +619,18 @@
+     }
+ }
+ 
++/* Replace the 6 bytes at f000:ffea with a xenstore-supplied value */
++static void init_magic_oem_bytes(void)
++{
++    const char *s = xenstore_read("bios-strings/oem-rombios");
++    if (!s || *s == '\0')
++        return;
++
++    /* Even if the xenstore value isn't six bytes long, the buffer is 
++     * safe to read from, so just copy over six bytes */
++    memcpy((void *) 0xfffea, s, 6);
++}
++
+ /* Create an E820 table based on memory parameters provided in hvm_info. */
+ static void build_e820_table(void)
+ {
+@@ -720,6 +732,7 @@
+     if ( rombios_sz > 0x10000 )
+         rombios_sz = 0x10000;
+     memcpy((void *)ROMBIOS_PHYSICAL_ADDRESS, rombios, rombios_sz);
++    init_magic_oem_bytes();
+     bios32_addr = highbios_setup();
+ 
+     if ( (hvm_info->nr_vcpus > 1) || hvm_info->apic_mode )
+diff -r 252cc46c6f83 tools/firmware/rombios/rombios.c
+--- a/tools/firmware/rombios/rombios.c	Thu Jul 08 16:34:53 2010 +0100
++++ b/tools/firmware/rombios/rombios.c	Fri Jul 09 10:59:01 2010 +0100
+@@ -11687,6 +11687,8 @@
+ 
+ .org 0xfef3 ; Initial Interrupt Vector Offsets Loaded by POST
+ 
++.org 0xffea ;; OEM string
++.ascii "______"
+ 
+ .org 0xff00
+ .ascii BIOS_COPYRIGHT_STRING

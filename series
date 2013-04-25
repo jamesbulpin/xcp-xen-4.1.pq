@@ -1,0 +1,308 @@
+#
+# Reversions from upstream
+#
+revert-xen-3.4-18560.782599274bf9.patch # x86, hvm: Expose host core/HT topology to HVM guests.
+revert-xen-4.1-testing.hg-23175.247fadffacab.patch # revert version suffix back to ".2"
+
+#
+# Patches from xen-4.1-testing
+#
+
+#
+# Patches from xen-unstable
+#
+xen-unstable.hg-23101.dd386a4b6595-ported.patch # x86: fix tboot after c/s 23013:65d26504e843 (ACPI cleanup)
+xen-unstable.hg-23556.bff008a26377.patch # xen-ringwatch
+xen-unstable.hg-23641.3a425348cb6c.patch # xentrace: Make a new hardware-related trace class
+xen-unstable.hg-23642.dc5bc760ec2f.patch # xentrace: Add tracing for IRQ-related events
+xen-unstable.hg-23643.335e96664589-ported.patch # xentrace: tevt_mask command line parameter
+xen-unstable.hg-23697.5e1032229546-ported.patch # pygrub: Prefer Grub2 to Grub1 if both config files written in a guest
+xen-unstable.hg-23783.2029263c501c-ported.patch # ACPI: add _PDC input override mechanism
+xen-unstable.hg-23800.72edc40e2942.patch # CVE-2011-2901: x86-64: Fix off-by-one error in __addr_ok() macro
+xen-unstable.hg-23845.17b754cab7b0.patch # Viridian MSR help
+xen-unstable.hg-23847.dbfb2e052c4b.patch # x86/tboot: make resume error messages visible
+xen-unstable.hg-23873.fef59e4eaf8d.patch # Viridian save/restore support
+xen-unstable.hg-23922.aea2b06769f3.patch # libxc: add xc_gnttab_map_grant_ref_notify
+xen-unstable.hg-23923.95e0564f493b.patch # libxc: add xc_gntshr_* functions
+xen-unstable.hg-23924.159be83e5fe9-ported.patch # libvchan: interdomain communications library
+xen-unstable.hg-23936.cdb34816a40a-ported.patch # Rename ocaml packages
+xen-unstable.hg-23937.5173834e8476.patch # Update ocaml dependencies
+xen-unstable.hg-23938.fa04fbd56521-ported.patch # Remove ocaml uuid library
+xen-unstable.hg-23939.51288f69523f.patch # Remove ocaml log library
+xen-unstable.hg-23941.9ad40e16c68f.patch # Add max_nr_cpus to xc bindings
+xen-unstable.hg-23944.4b0907c6a08c.patch # pygrub: Add debug flag
+xen-unstable.hg-23952.1515484353c6.patch # VMX: extend last branch MSR info to cover newer CPU models
+xen-unstable.hg-23982.511d5e65a302-ported.patch # Introduce nr_cpu_ids
+xen-unstable.hg-23995.8943a9696358.patch # x86 pm: provide CC7/PC2 residency
+xen-unstable.hg-24064.2d741388060d.patch # pygrub: Add HybridISO support
+xen-unstable.hg-24103.7f150d70ce5c.patch # x86/cpuidle: clean up hw residencies reading code
+xen-unstable.hg-24109.f7988da4b6ea.patch # VMX: extned last branch MSR info to cover newer CPU models #2
+xen-unstable.hg-24202.573b1acedcc0.patch # libvchan: clean *.opic
+xen-unstable.hg-24207.1d78b89475ec.patch # libvchan: fix segfault in client error path
+xen-unstable.hg-24268.31f751ef3e00.patch # x86/hvm/vmx: Trace traps and realmode exits
+xen-unstable.hg-24320.b6962c4b0dfd.patch # CA-60225: tools/ocaml: Release the global lock during some hypercalls
+xen-unstable.hg-24401.c04ec56f4a6d.patch # pygrub: Allow scrolling
+xen-unstable.hg-24402.983b551e4407.patch # pygrub: Fix "a" entry editing
+xen-unstable.hg-24414.de4034343b3a.patch # oxenstored: install configuration file
+xen-unstable.hg-24484.9cdcedc133e5.patch # x86: add a new SMP bring up way for tboot case
+xen-unstable.hg-24548.d115844ebfbb.patch # Add a GNTTABOP to swap the content of two grant references under lock
+xen-unstable.hg-24706.f84f34ec5fc7.patch # pugrub: fix extlinux parsing correctness
+xen-unstable.hg-24710.004a886b35d8-ported.patch # x86: add Ivy Bridge model numbers to model specific MSR handling
+xen-unstable.hg-24940.7e1fd8012ca3.patch # libxc: add MMIO hole size parameter to xc_hvm_build()
+xen-unstable.hg-24941.d21b8aabe295.patch # libxc: pass arguments to xc_hvm_build() in a structure
+xen-unstable.hg-24979.0f51f175fb57.patch # build: Add xenversion as a top-level target
+xen-unstable.hg-24980.9b152ebe9843.patch # build: Don't remove user-supplied xen-version during make clean
+xen-unstable.hg-24986.12c795ed5bec.patch # hvm: Add command line option to enable ASID support -- on by default
+xen-unstable.hg-24988.569ce192e3dd.patch # x86: Reduce severity of hvm_op warnings
+xen-unstable.hg-24989.02216ba702b0.patch # x86: Add more specific logging for get_page_from_l1e failures
+xen-unstable.hg-24991.2487f63339c0-ported.patch # NMI watchdog_timeout command line parameter
+xen-unstable.hg-25027.8a81f2bfd7cc.patch # libaio: Install libaio in $DESTDIR
+xen-unstable.hg-25040.e8660d8cf4be.patch # xl expose 'max_cpus_id' in `xl info`
+xen-unstable.hg-25064.0e3ed266b3bb-ported.patch # KEXEC allocate crash notes on boot
+xen-unstable.hg-25065-377c075ec0ec-ported.patch # KEXEC introduce low_crashinfo
+xen-unstable.hg-25070-4e1d091d10d8.patch # fix 32bit build from cs 25065:377c075ec0ec
+xen-unstable.hg-25261.15246e0ef818.patch # kexec: clear notes during setup
+xen-unstable.hg-25262.a2ff1bd3a200.patch # vgabios: Fix size computation overflow
+xen-unstable.hg-25263.efb4061b9ce8.patch # vgabios: Report mode not supported getting mode informations
+xen-unstable.hg-25264.8579bff9dc3f.patch # vgabios: Reduce stack usage getting mode informations
+xen-unstable.hg-25265.5097d77b057b.patch # vgabios: Check if mode is currently supported as vesa specifications
+xen-unstable.hg-25266.8f1e0cc4a507.patch # vgabios: Make Windows 8 support greater resolutions
+xen-unstable.hg-25333.53144d27a927-ported.patch # hvm: Put value of emulated register reads into trace records
+xen-unstable.hg-25335.f96ab219ef7b.patch # x86: fix i8259A_resume()
+xen-unstable.hg-25336.edd7c7ad1ad2-ported.patch # x86: adjust handling of interrupts coming in via legacy vectors
+xen-unstable.hg-25382.6dc80df50fa8.patch # x86: don't hold off NMI delivery when MCE is masked
+xen-unstable.hg-25460.32a31e2cb039.patch # xenstore: block signals in watch wakeup thread
+xen-unstable.hg-25461.0474a8b84762.patch # xenstore: set read_thread stacksize
+xen-unstable.hg-25469.4d40d7a4c6f1.patch # readnote: Add support for bzImage format
+xen-unstable.hg-25470.cfbf0c3513d6.patch # readnote: Dont panic if not bzImage
+xen-unstable.hg-25484.c272cfe25bea.patch # x86, cpufreq: Change powernow's CPB status immediately
+xen-unstable.hg-25485.5b6a857411ba-ported.patch # x86-64: don't allow non-canonical addresses to be set for any callback
+xen-unstable.hg-25589.60f09d1ab1fe.patch # pygrub: cope better with big files in the guest
+xen-unstable.hg-25765.e6ca45ca03c2-ported.patch # refine XSA-9 fix to be less disruptive
+xsa12.patch # xen: prevent a 64 bit guest setting reserved bits in DR7
+xsa13.patch # xen: handle out-of-pirq condition correctly in PHYSDEVOP_get_free_pirq
+xsa14.patch # xen: Don't BUG_ON() PoD operations on a non-translated guest
+xsa16.patch # x86/pvhvm: properly range-check PHYSDEVOP_map_pirq/MAP_PIRQ_TYPE_GSI
+xsa20.patch # vcpu/timers: Prevent overflow leading to infinite loop
+xsa21.patch # x86/physdev: Range check pirq parameter in unmap_pirq hypercall
+xsa22-4.1.patch # xen/mm: Prevent p2m and m2p getting out of sync
+xsa23-4.0-4.1.patch # mm/shadow: check toplevel pagetables are present before unhooking them
+xsa24.patch # compat/gnttab: Prevent infinite loop in hypercall handler
+
+#
+# Patches from staging/xen-unstable
+#
+
+#
+# Patches upstreamed in a form not easy to back-port
+#
+saverestore-sp-2-restore-detect-superpages.diff
+saverestore-sp-3-save-superpage-in-batch.diff
+saverestore-sp-4-allocate-only-pagetype.diff
+#rm_glb_intremap.patch     # CA-61127: Disable global intremap table option
+waet.patch
+xenlevel-xenversion.diff
+CA-57658_lgd.patch
+dmar-correct-BDF-formatting.patch
+
+#
+# For upstream
+#
+saverestore-sp-1-p2m-table-stats.diff
+pod-track-cache-superpages.diff
+pod-check-last-populated.diff
+pod-check-last-128.diff
+disable-supersweeps.diff
+sweep-emergency-only.diff
+p2m-get-entry-returns-level.diff
+pod-return-scans-superpage.diff
+CA-75211-dom0-max-vcpus.patch
+libvchan-includes.patch # tools: Reorder and add includes in libvchan
+parallel-bootscrub.patch
+add-extra-sandy-bridge-cpu-to-cpuid-masking.patch
+0001-trace-allow-for-different-sub-classes-of-TRC_PV_-tra.patch
+0002-trace-improve-usefulness-of-hypercall-trace-record.patch
+0003-trace-trace-hypercalls-inside-a-multicall.patch
+# djs needs to upstream these (when xen-4.2 branches)
+xenstored-syslog.patch
+xenstored-syslog2.patch
+xenstored-syslog3.patch
+makefile-fix-xen-changeset.patch
+detect-nehalem-c-state.patch
+add-acpi-cstate-reporting-to-xenpm.patch
+numa-init.patch
+numa-remove-warning.patch
+gnttab-validate-swap-refs.patch
+xenconsoled-shutdown-dead-domains.patch
+XOP-186-fix-pcipassthrough-corruption.patch
+
+#
+# Makefiles
+#
+version-numbers.patch
+compile-with-debugging-symbols.patch
+configure-libxc-threading.patch
+build-configure.patch
+build-disable-stubdoms.patch
+build-disable-toplevel.patch
+build-prune-system-integration.diff
+build-prune-installed-binaries.diff
+build-prune-python.patch
+#things-not-to-build.patch
+builder-makefiles.patch
+ocaml-xenstored-legacy.patch
+
+#
+# Xapi/OCaml-specific hacks
+# Should go away when xapi uses libxl.
+#
+domain-build-native-protocol-accessor.patch
+
+#
+# XenRT-specific hacks
+#
+pv-dont-hide-svm-or-vmx.patch
+
+#
+# libxc + related utils
+#
+uclibc-build-fixes.patch
+libxc-new-ioctls.patch
+libxc-new-ioctls-for-xiu.patch
+libxl-builder-makefiles.diff
+libxl-blktap-disable.diff
+#libxl-blktap-integration.diff
+libxl-default-config.diff
+libxl-reenable.diff
+
+#
+# Misc tools
+#
+xeninfo-tool-for-uclibc.patch
+hotplug-lock-tuning.patch
+log-guest-consoles.patch  ## XXX check w/ijc?
+crash_guest.patch
+define-offsets-for-kdump.patch
+kexec-change-low_crashinfo-default.patch # This will disappear when dom0 kernel becomes 64bit
+libvchan-build-fixes.patch
+xenguest-interface-change-define.patch # remove on rebase to xen-4.2 (djs)
+
+#
+# Pygrub
+#
+pygrub-xs-add-default-and-extra-args.patch
+pygrub-xs-always-boot-default.patch
+pygrub-xs-rhel5-libext2fs-workaround.patch # Remove when dom0 is based on CentOS 6.x
+pygrub-xs-blacklist-oel5.6.patch
+
+#
+# HVM Firmware
+#
+oem-bios-xensource.patch
+acpi-s3-and-s4.patch
+oem-bios-magic-from-xenstore.patch
+acpi-pm-compat.patch
+ipxe-sources.patch
+ipxe-no-post-prompt.patch
+ipxe-bigger-arp-cache.patch
+ipxe-request-size.patch
+ipxe-ignore-source-address.patch
+ipxe-seconds-elapsed.patch
+ipxe-allow-port67-replies.patch
+ipxe-rtl8139-crc.patch
+gpxe-80d1ac7320f597b4c981dfdeb19d8e88eb85ca69.patch
+ipxe-no-comboot-support.patch
+ipxe-do-not-implement-UNDI-GET_NEXT-if-PVS.patch
+ipxe-use-correct-next-server-and-filename.patch
+gpxe-CA-44777-fixed-in-ipxe-c517d0ea7ff73e3d0ffe751f403f5679a5ce1685.patch
+pxe-tftp-load-from-program-pxecall.patch
+ipxe-udp-error-propagate.patch
+ipxe-udp-write-blocking.patch
+ipxe-preboot-restart.patch
+ipxe-dup-offer.patch
+ipxe-dhcp-arp.patch
+
+
+#
+# Xen: scheduler
+#
+# XXX Need GWD to sort & upstream these. 
+scheduler.auto-adjust-privdomain-weight.patch
+domain-runstates.patch
+
+#
+# Xen: core
+#
+memcpy_nt.patch ## XXX measure netwrok throughput under other loads to test this
+bigger-console-ring.patch # Bump xen console ring default size from 16k to 64k
+lowmem-emergency-pool.patch
+cc-restrictions.patch
+cc-decrease-reservation.patch
+dont-emulate-movnti.patch
+hvm-hap-cmdline-option.patch
+hvm-disable-tsc-ramping.patch
+hvm-hpet-extra-50us.patch
+#hvm-callback-gsi-ignore-affinity.patch
+hvm-cpuid-multicore.patch
+hvm-op-process-dying.patch
+#trace-percpu-init-fix.patch # check w/ gwd
+
+#
+# Xen: compatibility hacks
+#
+npt-detect-reva.patch
+
+#
+# Xen: dom0 and kdump handling
+#
+limit-default-dom0-mem.patch
+load-domain-0-below-4g.patch
+#unblock-poller-on-any-event.patch
+
+#
+# Xen: new hypercalls
+#
+stubdom-privileged-domctls.patch
+cpuid-before-mask.patch
+hvm-cpuid-hide-nx.patch
+32-on-64-geneva-drivers.patch
+compat-pvdriver-hypercalls.patch
+xenmapspace-vlapic.patch
+viridian-extra-hypercalls.patch
+hvm-driver-version-hypercall.patch
+#shadow-audit-on-bugcheck.patch
+
+#
+# Xc ext
+#
+xc-ext-5.patch
+xc-ext-6.patch
+xc-ext-7.patch
+xc-ext-8.patch
+xenstore-xenbus-only-commu.patch
+xapi-libs-customize.patch
+xapi-libs-update.patch
+xenctrl-improved-ocaml-namespacing.patch
+
+#debug-build.patch
+xc-log-to-syslog.diff
+xc-drop-min-loglevel.patch
+revert-xc-handles-qemu-tail.diff
+
+#
+# EOF
+#
+disable-console-hvm-params.diff
+xc_domain_resume-one-checkpoint.diff
+use-default-cpuid-policies.patch
+#restore-debug.diff
+CA-60314-disable-mce-for-hvm.diff
+CA-62010-log-magic-pfn-values.diff
+CA-61684-dump-gnttab-on-map-failure.diff
+debug-saverestore-print-domain-with-message.diff
+CA-72761-libxc-error.patch    # going to be upstream
+quieten-xen-cpuid-masking-error.patch
+quieten-cstate-warning.patch
+stack_pointer_position.patch
+capture-boot-cpuid-with-cpuid-faulting.patch
+apply-boot-cpuid-masks-to-cpuid-faulting.patch

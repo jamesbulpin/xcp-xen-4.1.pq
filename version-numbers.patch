@@ -1,0 +1,9 @@
+Recast the Xen version number in a format that RPM likes
+
+diff -r 68b3f09ed9ba xen/xen-version
+--- /dev/null	Thu Jan 01 00:00:00 1970 +0000
++++ b/xen/xen-version	Fri Jul 02 12:38:59 2010 +0100
+@@ -0,0 +1,3 @@
++# Replace - with . to make version suitable for rpm.
++XEN_EXTRAVERSION := $(subst -,.,$(XEN_EXTRAVERSION))
++XEN_FULLVERSION  := $(XEN_VERSION).$(XEN_SUBVERSION)$(XEN_EXTRAVERSION)

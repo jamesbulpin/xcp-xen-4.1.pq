@@ -1,0 +1,58 @@
+Add logic for XIU regarding the newly added primitives
+
+As suggested by Ian Campbell, rather than implementing new fake primitives for XIU, we can simply tell xc to default to sensible return value when the fake primitives are absent. Moreover, the newly added primitives are libxc internal, so it makes sense to keep the handling logic internal as well.
+
+Signed-off-by: Zheng Li <zheng.li@eu.citrix.com> 
+
+diff --git a/tools/libxc/xc_domain.c b/tools/libxc/xc_domain.c
+--- a/tools/libxc/xc_domain.c
++++ b/tools/libxc/xc_domain.c
+@@ -27,7 +27,11 @@
+ 
+ int xc_interface_restrict(xc_interface *xch, domid_t dom)
+ {
+-    return xch->ops->u.privcmd.restrict_to(xch, xch->ops_handle, dom);
++    if (xch->ops->u.privcmd.restrict_to)
++        return xch->ops->u.privcmd.restrict_to(xch, xch->ops_handle, dom);
++
++    /* no hook implies the backend doesn't need/want this */
++    return 0;
+ }
+ 
+ int xc_domain_create(xc_interface *xch,
+diff --git a/tools/libxc/xc_evtchn.c b/tools/libxc/xc_evtchn.c
+--- a/tools/libxc/xc_evtchn.c
++++ b/tools/libxc/xc_evtchn.c
+@@ -67,7 +67,11 @@ xc_evtchn_alloc_unbound(xc_interface *xc
+ 
+ int xc_evtchn_restrict(xc_evtchn *xce, domid_t dom)
+ {
+-    return xce->ops->u.evtchn.restrict_to(xce, xce->ops_handle, dom);
++    if (xce->ops->u.evtchn.restrict_to)
++        return xce->ops->u.evtchn.restrict_to(xce, xce->ops_handle, dom);
++    
++    /* no hook implies the backend doesn't need/want this */
++    return 0;
+ }
+ 
+ int xc_evtchn_reset(xc_interface *xch,
+diff --git a/tools/libxc/xc_private.c b/tools/libxc/xc_private.c
+--- a/tools/libxc/xc_private.c
++++ b/tools/libxc/xc_private.c
+@@ -228,9 +228,15 @@ int do_xen_hypercall(xc_interface *xch, 
+ {
+     return xch->ops->u.privcmd.hypercall(xch, xch->ops_handle, hypercall);
+ }
++
+ int do_xen_arch_ioctl(xc_interface *xch, int req, long int arg)
+ {
+-    return xch->ops->u.privcmd.arch_ioctl(xch, xch->ops_handle, req, arg);
++    if (xch->ops->u.privcmd.arch_ioctl)
++        return xch->ops->u.privcmd.arch_ioctl(xch, xch->ops_handle, req, arg);
++
++    /* signal to caller that this interface is not available */
++    errno = EINVAL;
++    return -1;
+ }
+ 
+ xc_evtchn *xc_evtchn_open(xentoollog_logger *logger,

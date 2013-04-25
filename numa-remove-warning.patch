@@ -1,0 +1,35 @@
+# HG changeset patch
+# Parent a2dbed3582e5bedb605a37fe20a75fca9586e171
+x86/numa: Remove warning about small NUMA nodes.
+
+This logic came with the other NUMA logic from Linux 2.6.16 in c/s
+11893:f312c2d01d8b.  It appears that the Xen memory management subsystem does
+not suffer from the expressed problems.  Furthermore, NUMA nodes with no memory
+are now quite easy to find, and are not BIOS bugs in the SRAT ACPI table.
+
+Signed-off-by: Andrew Cooper <andrew.cooper3@citrix.com>
+
+diff -r a2dbed3582e5 xen/arch/x86/srat.c
+--- a/xen/arch/x86/srat.c
++++ b/xen/arch/x86/srat.c
+@@ -34,9 +34,6 @@ static int num_node_memblks;
+ static struct node node_memblk_range[NR_NODE_MEMBLKS];
+ static int memblk_nodeid[NR_NODE_MEMBLKS];
+ 
+-/* Too small nodes confuse the VM badly. Usually they result
+-   from BIOS bugs. */
+-#define NODE_MIN_SIZE (4*1024*1024)
+ 
+ static int node_to_pxm(int n);
+ 
+@@ -454,10 +451,6 @@ int __init acpi_scan_nodes(u64 start, u6
+ 			printk(KERN_WARNING "SRAT: Node %u has no memory. "
+ 			       "BIOS Bug or mis-configured hardware?\n", i);
+ 
+-		else if (size < NODE_MIN_SIZE)
+-			printk(KERN_WARNING "SRAT: Node %u has only %"PRIu64
+-			       " bytes of memory. BIOS Bug?\n", i, size);
+-
+ 		setup_node_bootmem(i, nodes[i].start, nodes[i].end);
+ 	}
+ 	for (i = 0; i < nr_cpu_ids; i++) {

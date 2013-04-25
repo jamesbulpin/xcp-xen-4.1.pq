@@ -1,0 +1,30 @@
+diff -r 215ba3c275ef tools/libxl/Makefile
+--- a/tools/libxl/Makefile	Mon Feb 13 11:52:16 2012 +0000
++++ b/tools/libxl/Makefile	Mon Feb 13 11:52:28 2012 +0000
+@@ -103,10 +106,12 @@ libxlutil.a: $(LIBXLU_OBJS)
+ 
+ .PHONY: install
+ install: all
++	$(INSTALL_DIR) $(DESTDIR)$(XEN_CONFIG_DIR)
+ 	$(INSTALL_DIR) $(DESTDIR)$(SBINDIR)
+ 	$(INSTALL_DIR) $(DESTDIR)$(LIBDIR)
+ 	$(INSTALL_DIR) $(DESTDIR)$(INCLUDEDIR)
+ 	$(INSTALL_DIR) $(DESTDIR)$(BASH_COMPLETION_DIR)
++	$(INSTALL_DIR) $(DESTDIR)/var/lib/xen
+ 	$(INSTALL_PROG) xl $(DESTDIR)$(SBINDIR)
+ 	$(INSTALL_PROG) libxenlight.so.$(MAJOR).$(MINOR) $(DESTDIR)$(LIBDIR)
+ 	ln -sf libxenlight.so.$(MAJOR).$(MINOR) $(DESTDIR)$(LIBDIR)/libxenlight.so.$(MAJOR)
+@@ -118,6 +123,7 @@ install: all
+ 	$(INSTALL_DATA) libxlutil.a $(DESTDIR)$(LIBDIR)
+ 	$(INSTALL_DATA) libxl.h _libxl_types.h libxl_uuid.h $(DESTDIR)$(INCLUDEDIR)
+ 	$(INSTALL_DATA) bash-completion $(DESTDIR)$(BASH_COMPLETION_DIR)/xl.sh
++	$(INSTALL_DATA) xl.conf $(DESTDIR)$(XEN_CONFIG_DIR)/xl.conf
+ 
+ .PHONY: clean
+ clean:
+diff -r 215ba3c275ef tools/libxl/xl.conf
+--- /dev/null	Thu Jan 01 00:00:00 1970 +0000
++++ b/tools/libxl/xl.conf	Mon Feb 13 11:52:28 2012 +0000
+@@ -0,0 +1,2 @@
++autoballoon = 0
++

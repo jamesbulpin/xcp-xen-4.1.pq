@@ -1,0 +1,22 @@
+# HG changeset patch
+# Parent 6f22e31d26c7805acad5aaafd875d07639bb5ba8
+Change default low_crashinfo_mode because 32bit dom0 will fail trying to get
+crash note ranges if they are malloc'd above 4GB (which is very likey), due to
+the Xen compat layer truncating a 64bit pointer to 32bits.
+
+Therefore, default to min by default, which will cause no regressions in
+customer kexec experience, until we move to a 64bit dom0 kernel, at which point
+all of these low_crashinfo hacks become unneeded.
+
+diff -r 6f22e31d26c7 xen/common/kexec.c
+--- a/xen/common/kexec.c
++++ b/xen/common/kexec.c
+@@ -66,7 +66,7 @@ static struct {
+ 
+ /* Low crashinfo mode.  Start as INVALID so serveral codepaths can set up
+  * defaults without needing to know the state of the others. */
+-enum low_crashinfo low_crashinfo_mode = LOW_CRASHINFO_INVALID;
++enum low_crashinfo low_crashinfo_mode = LOW_CRASHINFO_MIN;
+ 
+ /* This value is only considered if low_crash_mode is set to MIN or ALL, so
+  * setting a default here is safe. Default to 4GB.  This is because the current

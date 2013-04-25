@@ -1,0 +1,107 @@
+
+# HG changeset patch
+# User Jan Beulich <jbeulich@suse.com>
+# Date 1316273153 -3600
+# Node ID dbfb2e052c4b3e096e4c14c55240ef4fa866e62e
+# Parent  bf2aaf21e8e72fdd033c603b55792e9efd471dfa
+x86/tboot: make resume error messages visible
+
+With tboot_s3_resume() running before console_resume(), the error
+messages so far printed by it are mostly guaranteed to go into
+nirwana.  Latch MACs into a static variable instead, and issue the
+messages right before calling panic().
+
+Signed-off-by: Jan Beulich <jbeulich@suse.com>
+
+diff -r bf2aaf21e8e7 -r dbfb2e052c4b xen/arch/x86/acpi/power.c
+--- a/xen/arch/x86/acpi/power.c	Sat Sep 17 16:22:54 2011 +0100
++++ b/xen/arch/x86/acpi/power.c	Sat Sep 17 16:25:53 2011 +0100
+@@ -193,7 +193,7 @@ static int enter_state(u32 state)
+     printk(XENLOG_INFO "Finishing wakeup from ACPI S%d state.\n", state);
+ 
+     if ( (state == ACPI_STATE_S3) && error )
+-        panic("Memory integrity was lost on resume (%d)\n", error);
++        tboot_s3_error(error);
+ 
+  done:
+     spin_debug_enable();
+diff -r bf2aaf21e8e7 -r dbfb2e052c4b xen/arch/x86/tboot.c
+--- a/xen/arch/x86/tboot.c	Sat Sep 17 16:22:54 2011 +0100
++++ b/xen/arch/x86/tboot.c	Sat Sep 17 16:25:53 2011 +0100
+@@ -481,35 +481,50 @@ int __init tboot_parse_dmar_table(acpi_t
+     return rc;
+ }
+ 
++static vmac_t orig_mac, resume_mac;
++
+ int tboot_s3_resume(void)
+ {
+-    vmac_t mac;
+-
+     if ( !tboot_in_measured_env() )
+         return 0;
+ 
+     /* need to do these in reverse order of shutdown */
+-    tboot_gen_xenheap_integrity(g_tboot_shared->s3_key, &mac);
+-    printk("MAC for xenheap before S3 is: 0x%08"PRIx64"\n", xenheap_mac);
+-    printk("MAC for xenheap after S3 is: 0x%08"PRIx64"\n", mac);
+-    if ( mac != xenheap_mac )
++    tboot_gen_xenheap_integrity(g_tboot_shared->s3_key, &resume_mac);
++    orig_mac = xenheap_mac;
++    if ( resume_mac != xenheap_mac )
+         return -1;
+ 
+-    tboot_gen_frametable_integrity(g_tboot_shared->s3_key, &mac);
+-    printk("MAC for frametable before S3 is: 0x%08"PRIx64"\n", frametable_mac);
+-    printk("MAC for frametable after S3 is: 0x%08"PRIx64"\n", mac);
+-    if ( mac != frametable_mac )
++    tboot_gen_frametable_integrity(g_tboot_shared->s3_key, &resume_mac);
++    orig_mac = frametable_mac;
++    if ( resume_mac != frametable_mac )
+         return -2;
+ 
+-    tboot_gen_domain_integrity(g_tboot_shared->s3_key, &mac);
+-    printk("MAC for domains before S3 is: 0x%08"PRIx64"\n", domain_mac);
+-    printk("MAC for domains after S3 is: 0x%08"PRIx64"\n", mac);
+-    if ( mac != domain_mac )
++    tboot_gen_domain_integrity(g_tboot_shared->s3_key, &resume_mac);
++    orig_mac = domain_mac;
++    if ( resume_mac != domain_mac )
+         return -3;
+ 
+     return 0;
+ }
+ 
++void tboot_s3_error(int error)
++{
++    const char *what = "???";
++
++    BUG_ON(!error || !tboot_in_measured_env());
++
++    switch ( error )
++    {
++    case -1: what = "Xen heap"; break;
++    case -2: what = "frame table"; break;
++    case -3: what = "domains"; break;
++    }
++
++    printk("MAC for %s before S3 is: 0x%08"PRIx64"\n", what, orig_mac);
++    printk("MAC for %s after S3 is: 0x%08"PRIx64"\n", what, resume_mac);
++    panic("Memory integrity was lost on resume (%d)\n", error);
++}
++
+ /*
+  * Local variables:
+  * mode: C
+diff -r bf2aaf21e8e7 -r dbfb2e052c4b xen/include/asm-x86/tboot.h
+--- a/xen/include/asm-x86/tboot.h	Sat Sep 17 16:22:54 2011 +0100
++++ b/xen/include/asm-x86/tboot.h	Sat Sep 17 16:25:53 2011 +0100
+@@ -119,6 +119,7 @@ int tboot_in_measured_env(void);
+ int tboot_protect_mem_regions(void);
+ int tboot_parse_dmar_table(acpi_table_handler dmar_handler);
+ int tboot_s3_resume(void);
++void tboot_s3_error(int error);
+ 
+ #endif /* __TBOOT_H__ */
+ 
+

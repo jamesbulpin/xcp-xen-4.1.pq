@@ -1,0 +1,33 @@
+# HG changeset patch
+# Parent 7a4c7c0e793880ea18acd4a28da8f035a2e9d747
+xen/gnttab: Validate input to GNTTABOP_swap_grant_ref
+
+xen-unstable c/s 24548:d115844ebfbb introduces a new GNTTABOP to swap grant refs.
+However, it fails to validate the two refs passed from the guest.
+
+The result is that passing out-of-range refs can cause Xen to read past the end
+of the grant_table->active[] array, and deference whatever it finds.  Typically,
+this results in Xen trying to deference a low pointer and fail with a page-fault.
+
+As this hypercall can be issued by an unprivileged guest, this is a Denial of
+Service against Xen.
+
+Signed-off-by: Andrew Cooper <andrew.cooper3@citrix.com>
+Acked-by: Paul Durrant <paul.durrant@citrix.com>
+
+diff -r 7a4c7c0e7938 xen/common/grant_table.c
+--- a/xen/common/grant_table.c
++++ b/xen/common/grant_table.c
+@@ -2263,6 +2263,12 @@ __gnttab_swap_grant_ref(grant_ref_t ref_
+ 
+     spin_lock(&d->grant_table->lock);
+ 
++    /* Bounds check on the grant refs */
++    if ( unlikely(ref_a >= nr_grant_entries(d->grant_table)))
++        PIN_FAIL(out, GNTST_bad_gntref, "Bad ref (%d).\n", ref_a);
++    if ( unlikely(ref_b >= nr_grant_entries(d->grant_table)))
++        PIN_FAIL(out, GNTST_bad_gntref, "Bad ref (%d).\n", ref_b);
++
+     act = &active_entry(d->grant_table, ref_a);
+     if ( act->pin )
+         PIN_FAIL(out, GNTST_eagain, "ref a %ld busy\n", (long)ref_a);

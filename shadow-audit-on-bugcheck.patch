@@ -1,0 +1,298 @@
+Add a new HVM op, HVMOP_audit_world, which can be used by guests to
+hint to the hypervisor that something bad has happened.  Hook it up so
+that it causes shadow mode to audit the current domain's page tables.
+The theory is that this will make it a bit easier to track down
+whatever obscure bug it is that keeps killing Vista SP1 with driver
+verifier.
+
+diff -r 327e10e7a342 xen/arch/x86/hvm/hvm.c
+--- a/xen/arch/x86/hvm/hvm.c	Fri Jul 09 14:21:15 2010 +0100
++++ b/xen/arch/x86/hvm/hvm.c	Fri Jul 09 14:39:29 2010 +0100
+@@ -3281,6 +3281,13 @@
+         return 0;
+     }
+ 
++    case HVMOP_audit_world: {
++        /* The guest is crashing.  See if it's obviously shadow mode's
++           fault. */
++        shadow_audit_now(current);
++        return 0;
++    }
++
+     default:
+     {
+         gdprintk(XENLOG_WARNING, "Bad HVM op %ld.\n", op);
+diff -r 327e10e7a342 xen/arch/x86/mm/shadow/common.c
+--- a/xen/arch/x86/mm/shadow/common.c	Fri Jul 09 14:21:15 2010 +0100
++++ b/xen/arch/x86/mm/shadow/common.c	Fri Jul 09 14:39:29 2010 +0100
+@@ -87,6 +87,8 @@
+ }
+ 
+ #if SHADOW_AUDIT
++
++#if SHADOW_ROLLING_AUDIT
+ int shadow_audit_enable = 0;
+ 
+ static void shadow_audit_key(unsigned char key)
+@@ -101,12 +103,37 @@
+     .desc = "toggle shadow audits"
+ };
+ 
++#endif /* SHADOW_ROLLING_AUDIT */
++
++static void shadow_audit_now_key(unsigned char key)
++{
++    struct domain *d;
++    struct vcpu *v;
++    for_each_domain(d)
++    {
++        shadow_lock(d);
++        if ( shadow_mode_enabled(d) )
++            for_each_vcpu(d, v)
++                shadow_audit_tables_now(v);
++        shadow_unlock(d);
++    }
++}
++
++static struct keyhandler shadow_audit_now_keyhandler = {
++    .u.fn = shadow_audit_now_key,
++    .desc = "trigger a shadow audit now"
++};
++
+ static int __init shadow_audit_key_init(void)
+ {
++#if SHADOW_ROLLING_AUDIT
+     register_keyhandler('O', &shadow_audit_keyhandler);
++#endif
++    register_keyhandler('s', &shadow_audit_now_keyhandler);
+     return 0;
+ }
+ __initcall(shadow_audit_key_init);
++
+ #endif /* SHADOW_AUDIT */
+ 
+ int _shadow_mode_refcounts(struct domain *d)
+@@ -528,19 +555,19 @@
+             pg = mfn_to_page(oos[idx]);
+             if ( !(pg->count_info & PGC_page_table) )
+             {
+-                printk("%s: idx %x gmfn %lx not a pt (count %"PRIx32")\n",
++                printk("%s: idx %x gmfn %lx not a pt (count %lx)\n",
+                        __func__, idx, mfn_x(oos[idx]), pg->count_info);
+                 BUG();
+             }
+             if ( !(pg->shadow_flags & SHF_out_of_sync) )
+             {
+-                printk("%s: idx %x gmfn %lx not marked oos (flags %lx)\n",
++                printk("%s: idx %x gmfn %lx not marked oos (flags %x)\n",
+                        __func__, idx, mfn_x(oos[idx]), pg->shadow_flags);
+                 BUG();
+             }
+             if ( (pg->shadow_flags & SHF_page_type_mask & ~SHF_L1_ANY) )
+             {
+-                printk("%s: idx %x gmfn %lx shadowed as non-l1 (flags %lx)\n",
++                printk("%s: idx %x gmfn %lx shadowed as non-l1 (flags %x)\n",
+                        __func__, idx, mfn_x(oos[idx]), pg->shadow_flags);
+                 BUG();
+             }
+@@ -1923,13 +1950,10 @@
+ 
+ /* Before we get to the mechanism, define a pair of audit functions
+  * that sanity-check the contents of the hash table. */
+-static void sh_hash_audit_bucket(struct domain *d, int bucket)
++static void sh_hash_audit_bucket_now(struct domain *d, int bucket)
+ /* Audit one bucket of the hash table */
+ {
+     struct page_info *sp, *x;
+-
+-    if ( !(SHADOW_AUDIT_ENABLE) )
+-        return;
+ 
+     sp = d->arch.paging.shadow.hash_table[bucket];
+     while ( sp )
+@@ -1991,29 +2015,38 @@
+ }
+ 
+ #else
+-#define sh_hash_audit_bucket(_d, _b) do {} while(0)
++#define sh_hash_audit_bucket_now(_d, _b) do {} while(0)
+ #endif /* Hashtable bucket audit */
+ 
++static void sh_hash_audit_bucket(struct domain *d, int bucket)
++{
++    if ( SHADOW_ROLLING_AUDIT_ENABLE )
++        sh_hash_audit_bucket_now(d, bucket);
++}
++
+ 
+ #if SHADOW_AUDIT & SHADOW_AUDIT_HASH_FULL
+ 
++static void sh_hash_audit_now(struct domain *d)
++/* Full audit: audit every bucket in the table */
++{
++    int i;
++
++    for ( i = 0; i < SHADOW_HASH_BUCKETS; i++ ) 
++    {
++        sh_hash_audit_bucket_now(d, i);
++    }
++}
++
++#else
++#define sh_hash_audit_now(_d) do {} while(0)
++#endif /* Hashtable bucket audit */
++
+ static void sh_hash_audit(struct domain *d)
+-/* Full audit: audit every bucket in the table */
+-{
+-    int i;
+-
+-    if ( !(SHADOW_AUDIT_ENABLE) )
+-        return;
+-
+-    for ( i = 0; i < SHADOW_HASH_BUCKETS; i++ ) 
+-    {
+-        sh_hash_audit_bucket(d, i);
+-    }
+-}
+-
+-#else
+-#define sh_hash_audit(_d) do {} while(0)
+-#endif /* Hashtable bucket audit */
++{
++    if ( SHADOW_ROLLING_AUDIT_ENABLE )
++        sh_hash_audit_now(d);
++}
+ 
+ /* Allocate and initialise the table itself.  
+  * Returns 0 for success, 1 for error. */
+@@ -3888,7 +3921,7 @@
+ 
+ #if SHADOW_AUDIT & SHADOW_AUDIT_ENTRIES_FULL
+ 
+-void shadow_audit_tables(struct vcpu *v) 
++void shadow_audit_tables_now(struct vcpu *v)
+ {
+     /* Dispatch table for getting per-type functions */
+     static const hash_callback_t callbacks[SH_type_unused] = {
+@@ -3912,9 +3945,6 @@
+     };
+     unsigned int mask; 
+ 
+-    if ( !(SHADOW_AUDIT_ENABLE) )
+-        return;
+-
+ #if (SHADOW_OPTIMIZATIONS & SHOPT_OUT_OF_SYNC)
+     sh_oos_audit(v->domain);
+ #endif
+@@ -3939,6 +3969,31 @@
+ }
+ 
+ #endif /* Shadow audit */
++
++void shadow_audit_now(struct vcpu *v)
++{
++    struct domain *d = v->domain;
++    struct vcpu *vcpu;
++
++    gdprintk(XENLOG_ERR, "Shadow audit requested by %d.%d\n", 
++             d->domain_id, v->vcpu_id);
++    shadow_lock(d);
++    if ( !shadow_mode_enabled(d) ) 
++    {
++        gdprintk(XENLOG_ERR, 
++                 "Not auditing: domain %d is not using shadow pagetables\n", 
++                 d->domain_id);
++        shadow_unlock(d);
++        return;
++    }
++    for_each_vcpu(d, vcpu) {
++        gdprintk(XENLOG_ERR, "Audit vcpu %d\n", vcpu->vcpu_id);
++        shadow_audit_tables_now(vcpu);
++    }
++    shadow_unlock(d);
++    gdprintk(XENLOG_ERR, "Finished audit on behalf of %d.%d\n", d->domain_id,
++             v->vcpu_id);
++}
+ 
+ /*
+  * Local variables:
+diff -r 327e10e7a342 xen/arch/x86/mm/shadow/multi.c
+--- a/xen/arch/x86/mm/shadow/multi.c	Fri Jul 09 14:21:15 2010 +0100
++++ b/xen/arch/x86/mm/shadow/multi.c	Fri Jul 09 14:39:29 2010 +0100
+@@ -318,7 +318,7 @@
+ {
+     mfn_t smfn;
+ 
+-    if ( !(SHADOW_AUDIT_ENABLE) )
++    if ( !(SHADOW_ROLLING_AUDIT_ENABLE) )
+         return;
+ 
+ #if GUEST_PAGING_LEVELS >= 4 /* 64-bit only... */
+diff -r 327e10e7a342 xen/arch/x86/mm/shadow/private.h
+--- a/xen/arch/x86/mm/shadow/private.h	Fri Jul 09 14:21:15 2010 +0100
++++ b/xen/arch/x86/mm/shadow/private.h	Fri Jul 09 14:39:29 2010 +0100
+@@ -42,12 +42,13 @@
+ #define SHADOW_AUDIT_ENTRIES_FULL   0x08  /* Check every shadow */
+ #define SHADOW_AUDIT_ENTRIES_MFNS   0x10  /* Check gfn-mfn map in shadows */
+ 
++#define SHADOW_AUDIT                0x1f
+ #ifdef NDEBUG
+-#define SHADOW_AUDIT                   0
+-#define SHADOW_AUDIT_ENABLE            0
++#define SHADOW_ROLLING_AUDIT        0
++#define SHADOW_ROLLING_AUDIT_ENABLE 0
+ #else
+-#define SHADOW_AUDIT                0x15  /* Basic audit of all */
+-#define SHADOW_AUDIT_ENABLE         shadow_audit_enable
++#define SHADOW_ROLLING_AUDIT        (SHADOW_AUDIT & ~SHADOW_AUDIT_ENTRIES_FULL)
++#define SHADOW_ROLLING_AUDIT_ENABLE shadow_audit_enable
+ extern int shadow_audit_enable;
+ #endif
+ 
+@@ -192,10 +193,18 @@
+  */
+ 
+ #if SHADOW_AUDIT & SHADOW_AUDIT_ENTRIES_FULL
+-extern void shadow_audit_tables(struct vcpu *v);
++extern void shadow_audit_tables_now(struct vcpu *v);
+ #else
+-#define shadow_audit_tables(_v) do {} while(0)
++static inline void shadow_audit_tables_now(struct vcpu *v)
++{
++}
+ #endif
++static inline void shadow_audit_tables(struct vcpu *v)
++{
++    if ( SHADOW_ROLLING_AUDIT_ENABLE &&
++         (SHADOW_ROLLING_AUDIT & SHADOW_AUDIT_ENTRIES_FULL) )
++        shadow_audit_tables_now(v);
++}
+ 
+ /******************************************************************************
+  * Macro for dealing with the naming of the internal names of the
+diff -r 327e10e7a342 xen/include/asm-x86/shadow.h
+--- a/xen/include/asm-x86/shadow.h	Fri Jul 09 14:21:15 2010 +0100
++++ b/xen/include/asm-x86/shadow.h	Fri Jul 09 14:39:29 2010 +0100
+@@ -115,6 +115,11 @@
+     sh_remove_shadows(v, gmfn, 0 /* Be thorough */, 1 /* Must succeed */);
+ }
+ 
++/* The guest running on vcpu @v has detected an error of some sort,
++   and is about to crash.  Before it does so, try to figure out if a
++   shadow mode bug might have been responsible. */
++void shadow_audit_now(struct vcpu *v);
++
+ #endif /* _XEN_SHADOW_H */
+ 
+ /*
+diff -r 327e10e7a342 xen/include/public/hvm/hvm_op.h
+--- a/xen/include/public/hvm/hvm_op.h	Fri Jul 09 14:21:15 2010 +0100
++++ b/xen/include/public/hvm/hvm_op.h	Fri Jul 09 14:39:29 2010 +0100
+@@ -163,4 +163,6 @@
+ typedef struct xen_hvm_set_driver_version xen_hvm_set_driver_version_t;
+ DEFINE_XEN_GUEST_HANDLE(xen_hvm_set_driver_version_t);
+ 
++#define HVMOP_audit_world 0x104
++
+ #endif /* __XEN_PUBLIC_HVM_HVM_OP_H__ */

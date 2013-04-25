@@ -1,0 +1,61 @@
+# HG changeset patch
+# Parent a732d23d506e40cd452c71d521e0131271e010b4
+
+diff -r a732d23d506e tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/interface/pxe/pxe_call.c
+--- a/tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/interface/pxe/pxe_call.c	Thu Mar 01 10:29:18 2012 +0000
++++ b/tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/interface/pxe/pxe_call.c	Thu Mar 01 15:38:31 2012 +0000
+@@ -24,6 +24,7 @@ FILE_LICENCE ( GPL2_OR_LATER );
+ #include <biosint.h>
+ #include <pxe.h>
+ #include <pxe_call.h>
++#include <setjmp.h>
+ 
+ /** @file
+  *
+@@ -480,6 +481,8 @@ int pxe_deactivate ( void ) {
+ 	return 0;
+ }
+ 
++rmjmp_buf nbp_return;
++
+ /**
+  * Start PXE NBP at 0000:7c00
+  *
+@@ -489,6 +492,8 @@ int pxe_start_nbp ( void ) {
+ 	int discard_b, discard_c, discard_d, discard_D;
+ 	uint16_t rc;
+ 
++	rmsetjmp(nbp_return);
++
+ 	/* Far call to PXE NBP */
+ 	__asm__ __volatile__ ( REAL_CODE ( "movw %%cx, %%es\n\t"
+ 					   "pushw %%es\n\t"
+diff -r a732d23d506e tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/interface/pxe/pxe_preboot.c
+--- a/tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/interface/pxe/pxe_preboot.c	Thu Mar 01 10:29:18 2012 +0000
++++ b/tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/interface/pxe/pxe_preboot.c	Thu Mar 01 15:38:31 2012 +0000
+@@ -38,6 +38,7 @@ FILE_LICENCE ( GPL2_OR_LATER );
+ #include <gpxe/if_ether.h>
+ #include <basemem_packet.h>
+ #include <biosint.h>
++#include <setjmp.h>
+ #include "pxe.h"
+ #include "pxe_call.h"
+ 
+@@ -208,6 +209,8 @@ PXENV_EXIT_t pxenv_get_cached_info ( str
+ 	return PXENV_EXIT_FAILURE;
+ }
+ 
++extern rmjmp_buf nbp_return;
++
+ /* PXENV_RESTART_TFTP
+  *
+  * Status: working
+@@ -228,7 +231,7 @@ PXENV_EXIT_t pxenv_restart_tftp ( struct
+ 		return tftp_exit;
+ 
+ 	/* Fire up the new NBP */
+-	restart_tftp->Status = pxe_start_nbp();
++	rmlongjmp(nbp_return, 0);
+ 
+ 	/* Not sure what "SUCCESS" actually means, since we can only
+ 	 * return if the new NBP failed to boot...

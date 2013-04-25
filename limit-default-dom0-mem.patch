@@ -1,0 +1,20 @@
+If the user doesn't specify a memory size for dom0, give it less than 4GB.
+This limit applies _only_ if dom0_mem isn't specified.
+
+diff -r 3b306ee7520f xen/arch/x86/domain_build.c
+--- a/xen/arch/x86/domain_build.c	Fri Jul 09 15:25:42 2010 +0100
++++ b/xen/arch/x86/domain_build.c	Fri Jul 09 15:32:14 2010 +0100
+@@ -194,7 +194,12 @@
+      * a maximum of 128MB.
+      */
+     if ( nr_pages == 0 )
+-        nr_pages = -min(avail / 16, 128UL << (20 - PAGE_SHIFT));
++    {
++        /* To avoid problems with dom0 being crushed under the weight of
++         * its own frametable, limit the automatic number to 752MB */
++        unsigned long auto_max = min(avail, 803UL << (20 - PAGE_SHIFT));
++        nr_pages = auto_max - min(auto_max / 16UL, 128UL << (20 - PAGE_SHIFT));
++    }
+ 
+     /* Negative memory specification means "all memory - specified amount". */
+     if ( (long)nr_pages  < 0 ) nr_pages  += avail;

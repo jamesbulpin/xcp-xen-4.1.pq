@@ -1,0 +1,20 @@
+Double the console ring's default size, to 32KiB.
+Any larger than that and some tools have trouble retrieving it.
+
+diff -r 671df73aad64 xen/drivers/char/console.c
+--- a/xen/drivers/char/console.c
++++ b/xen/drivers/char/console.c
+@@ -60,11 +60,11 @@ boolean_param("console_to_ring", opt_con
+ static bool_t __read_mostly opt_console_timestamps;
+ boolean_param("console_timestamps", opt_console_timestamps);
+ 
+-/* conring_size: allows a large console ring than default (16kB). */
++/* conring_size: allows a large console ring than default (64kB). */
+ static uint32_t __initdata opt_conring_size;
+ size_param("conring_size", opt_conring_size);
+ 
+-#define _CONRING_SIZE 16384
++#define _CONRING_SIZE 65536
+ #define CONRING_IDX_MASK(i) ((i)&(conring_size-1))
+ static char __initdata _conring[_CONRING_SIZE];
+ static char *__read_mostly conring = _conring;

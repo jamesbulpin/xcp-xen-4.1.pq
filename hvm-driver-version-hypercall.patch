@@ -1,0 +1,38 @@
+Add a new HVM op which allows the PV drivers to tell Xen what build number
+they are.  The intent is that this will be used to trigger
+backwards-compatibility hacks in future; for now, we don't have any such
+hacks, so it's a no-op.
+
+diff -r 5828d1602f33 xen/arch/x86/hvm/hvm.c
+--- a/xen/arch/x86/hvm/hvm.c
++++ b/xen/arch/x86/hvm/hvm.c
+@@ -3864,6 +3864,14 @@ long do_hvm_op(unsigned long op, XEN_GUE
+         paging_process_dying(current);
+         break;
+ 
++    case HVMOP_set_driver_version: {
++        /* At some point in the future, this may be used to trigger
++           backwards compatibility workarounds for older versions of
++           the drivers.  We don't have any such workarounds at the
++           moment, so just do nothing. */
++        return 0;
++    }
++
+     default:
+     {
+         gdprintk(XENLOG_DEBUG, "Bad HVM op %ld.\n", op);
+diff -r 5828d1602f33 xen/include/public/hvm/hvm_op.h
+--- a/xen/include/public/hvm/hvm_op.h
++++ b/xen/include/public/hvm/hvm_op.h
+@@ -243,4 +243,11 @@ struct xen_hvm_get_mem_type {
+ typedef struct xen_hvm_get_mem_type xen_hvm_get_mem_type_t;
+ DEFINE_XEN_GUEST_HANDLE(xen_hvm_get_mem_type_t);
+ 
++#define HVMOP_set_driver_version 0x103
++struct xen_hvm_set_driver_version {
++    uint32_t build;
++};
++typedef struct xen_hvm_set_driver_version xen_hvm_set_driver_version_t;
++DEFINE_XEN_GUEST_HANDLE(xen_hvm_set_driver_version_t);
++
+ #endif /* __XEN_PUBLIC_HVM_HVM_OP_H__ */

@@ -1,0 +1,29 @@
+# HG changeset patch
+# User Roger Pau Monne <roger.pau@entel.upc.edu>
+# Date 1328635287 0
+# Node ID f84f34ec5fc7613d7a6dd53d18218656c11f0daa
+# Parent  7a58296824c3bf7a15d563a7a140d20c369c96c8
+pygrub: extlinux parsing correctness
+
+The "in" operator should be used instead of the find method, since
+we are only interested in knowing whether the line contains "initrd=",
+but we don't care about it's position. Also fixes an error that
+happens when initrd= it's at the start of the line, since find returns
+0 and is evaluated as False.
+
+Signed-off-by: Roger Pau Monne <roger.pau@entel.upc.edu>
+Acked-by: Ian Jackson <ian.jackson@eu.citrix.com>
+Committed-by: Ian Jackson <ian.jackson@eu.citrix.com>
+
+diff -r 7a58296824c3 -r f84f34ec5fc7 tools/pygrub/src/ExtLinuxConf.py
+--- a/tools/pygrub/src/ExtLinuxConf.py
++++ b/tools/pygrub/src/ExtLinuxConf.py
+@@ -60,7 +60,7 @@ class ExtLinuxImage(object):
+ 
+                 # Bypass regular self.commands handling
+                 com = None
+-            elif arg.find("initrd="):
++            elif "initrd=" in arg:
+                 # find initrd image in append line
+                 args = arg.strip().split(" ")
+                 for a in args:

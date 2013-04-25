@@ -1,0 +1,30 @@
+CA-5935 reduce cpu load in hotplug script to improve multiple guest start/stop times
+
+diff -r 7b09c6ec002a tools/hotplug/Linux/locking.sh
+--- a/tools/hotplug/Linux/locking.sh	Wed Oct 05 16:38:20 2011 +0100
++++ b/tools/hotplug/Linux/locking.sh	Wed Oct 05 16:38:29 2011 +0100
+@@ -19,8 +19,7 @@
+ # Serialisation
+ #
+ 
+-LOCK_SLEEPTIME=1
+-LOCK_SPINNING_RETRIES=5
++LOCK_SLEEPTIME=$(perl -e 'printf ("%0.2f\n",  rand() + 0.5)')
+ LOCK_RETRIES=100
+ LOCK_BASEDIR=/var/run/xen-hotplug
+ 
+@@ -68,13 +67,7 @@ _claim_lock()
+         _release_lock $lockdir
+       fi
+     fi
+-
+-    if [ $retries -gt $LOCK_SPINNING_RETRIES ]
+-    then
+-      sleep $LOCK_SLEEPTIME
+-    else
+-      sleep 0
+-    fi
++    sleep $LOCK_SLEEPTIME
+     retries=$(($retries + 1))
+   done
+   _steal_lock "$lockdir"

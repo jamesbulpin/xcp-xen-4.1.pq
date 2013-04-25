@@ -1,0 +1,84 @@
+Add a simple tool to force a crash inside a guest
+
+diff -r f905d9e9d5b5 .hgignore
+--- a/.hgignore	Fri Jan 20 10:56:56 2012 +0000
++++ b/.hgignore	Fri Jan 20 10:57:13 2012 +0000
+@@ -242,6 +242,7 @@
+ ^tools/vtpm/tpm_emulator/.*$
+ ^tools/vtpm/vtpm/.*$
+ ^tools/vtpm_manager/manager/vtpm_managerd$
++^tools/xcutils/crash_guest$
+ ^tools/xcutils/lsevtchn$
+ ^tools/xcutils/xc_restore$
+ ^tools/xcutils/xc_save$
+diff -r f905d9e9d5b5 mk/xen-4.1.spec.in
+--- a/mk/xen-4.1.spec.in	Fri Jan 20 10:56:56 2012 +0000
++++ b/mk/xen-4.1.spec.in	Fri Jan 20 10:57:13 2012 +0000
+@@ -163,6 +163,7 @@ rm -rf $RPM_BUILD_ROOT
+ %{_libdir}/%{name}/bin/xenconsole
+ %{_libdir}/%{name}/bin/xenctx
+ %{_libdir}/%{name}/bin/lsevtchn
++%{_libdir}/%{name}/bin/crash_guest
+ %ifarch x86_64
+ /usr/lib/%{name}/bin
+ %endif
+diff -r f905d9e9d5b5 tools/xcutils/Makefile
+--- a/tools/xcutils/Makefile	Fri Jan 20 10:56:56 2012 +0000
++++ b/tools/xcutils/Makefile	Fri Jan 20 10:57:13 2012 +0000
+@@ -14,7 +14,7 @@ include $(XEN_ROOT)/tools/Rules.mk
+ CFLAGS += -Werror
+ CFLAGS += $(CFLAGS_libxenctrl) $(CFLAGS_libxenguest) $(CFLAGS_libxenstore)
+ 
+-PROGRAMS = readnotes lsevtchn
++PROGRAMS = readnotes lsevtchn crash_guest
+ 
+ LDLIBS   = $(LDLIBS_libxenctrl) $(LDLIBS_libxenguest) $(LDLIBS_libxenstore)
+ 
+diff -r f905d9e9d5b5 tools/xcutils/crash_guest.c
+--- /dev/null	Thu Jan 01 00:00:00 1970 +0000
++++ b/tools/xcutils/crash_guest.c	Fri Jan 20 10:57:13 2012 +0000
+@@ -0,0 +1,44 @@
++#include <err.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <syslog.h>
++#include <inttypes.h>
++
++#include <xs.h>
++#include <xenctrl.h>
++#include <xenguest.h>
++
++#include <xen/foreign/x86_64.h>
++
++int
++main(int argc, char **argv)
++{
++    xc_interface *xch;
++    int domid;
++    vcpu_guest_context_x86_64_t ctxt64;
++
++    if ( argc != 2 )
++        errx(1, "usage: crash_guest <domid>");
++
++    openlog("crash_guest", 0, LOG_USER);
++
++    domid = strtol(argv[1], NULL, 10);
++    if ( domid == 0 )
++        errx(1, "don't crash dom0");
++
++    syslog(LOG_NOTICE, "crash guest %d", domid);
++
++    xch = xc_interface_open(0,0,0);
++    if ( NULL == xch )
++        errx(1, "failed to open control interface");
++
++    if ( xc_vcpu_getcontext(xch, domid, 0, (void *)&ctxt64) < 0 )
++        err(1, "getting domid %d context", domid);
++    printf("RIP %" PRIx64 "\n", ctxt64.user_regs.rip);
++    ctxt64.user_regs.rip = 0xf001;
++    if ( xc_vcpu_setcontext(xch, domid, 0, (void *)&ctxt64) < 0 )
++        err(1, "setting domid %d context", domid);
++
++    return 0;
++}

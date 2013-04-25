@@ -1,0 +1,122 @@
+
+# HG changeset patch
+# User Wei, Gang <gang.wei@intel.com>
+# Date 1326274485 -3600
+# Node ID 9cdcedc133e5227c635dbb00bd4779015311107a
+# Parent  da99d818b0070a751ee60f4abff98eeb0e08f8a6
+x86: add a new SMP bring up way for tboot case
+
+From: Wei, Gang <gang.wei@intel.com>
+
+tboot may be trying to put APs waiting in MWAIT loops before launching
+Xen. Xen could check the new flag field in v6 tboot shared page for the
+hint. If TB_FLAG_AP_WAKE_SUPPORT bit in flag field is set, Xen BSP have
+to write the monitored memory(g_tboot_shared->ap_wake_trigger) to bring
+APs out of MWAIT loops. The sipi vector should be written in
+g_tboot_shared->ap_wake_addr before waking up APs.
+
+Signed-off-by: Joseph Cihula <joseph.cihula@intel.com>
+Signed-off-by: Shane Wang <shane.wang@intel.com>
+Signed-off-by: Gang Wei <gang.wei@intel.com>
+Signed-off-by: Jan Beulich <jbeulich@suse.com>
+Committed-by: Jan Beulich <jbeulich@suse.com>
+
+diff -r da99d818b007 -r 9cdcedc133e5 xen/arch/x86/smpboot.c
+--- a/xen/arch/x86/smpboot.c	Mon Jan 09 17:07:32 2012 +0100
++++ b/xen/arch/x86/smpboot.c	Wed Jan 11 10:34:45 2012 +0100
+@@ -555,8 +555,7 @@ int alloc_cpu_id(void)
+ 
+ static int do_boot_cpu(int apicid, int cpu)
+ {
+-    unsigned long boot_error;
+-    int timeout, rc = 0;
++    int timeout, boot_error = 0, rc = 0;
+     unsigned long start_eip;
+ 
+     /*
+@@ -586,7 +585,8 @@ static int do_boot_cpu(int apicid, int c
+     smpboot_setup_warm_reset_vector(start_eip);
+ 
+     /* Starting actual IPI sequence... */
+-    boot_error = wakeup_secondary_cpu(apicid, start_eip);
++    if ( !tboot_in_measured_env() || tboot_wake_ap(apicid, start_eip) )
++        boot_error = wakeup_secondary_cpu(apicid, start_eip);
+ 
+     if ( !boot_error )
+     {
+diff -r da99d818b007 -r 9cdcedc133e5 xen/arch/x86/tboot.c
+--- a/xen/arch/x86/tboot.c	Mon Jan 09 17:07:32 2012 +0100
++++ b/xen/arch/x86/tboot.c	Wed Jan 11 10:34:45 2012 +0100
+@@ -123,6 +123,8 @@ void __init tboot_probe(void)
+     printk("  shutdown_entry: 0x%08x\n", tboot_shared->shutdown_entry);
+     printk("  tboot_base: 0x%08x\n", tboot_shared->tboot_base);
+     printk("  tboot_size: 0x%x\n", tboot_shared->tboot_size);
++    if ( tboot_shared->version >= 6 )
++        printk("  flags: 0x%08x\n", tboot_shared->flags);
+ 
+     /* these will be needed by tboot_protect_mem_regions() and/or
+        tboot_parse_dmar_table(), so get them now */
+@@ -529,6 +531,18 @@ void tboot_s3_error(int error)
+     panic("Memory integrity was lost on resume (%d)\n", error);
+ }
+ 
++int tboot_wake_ap(int apicid, unsigned long sipi_vec)
++{
++    if ( g_tboot_shared->version >= 6 &&
++         (g_tboot_shared->flags & TB_FLAG_AP_WAKE_SUPPORT) )
++    {
++        g_tboot_shared->ap_wake_addr = sipi_vec;
++        g_tboot_shared->ap_wake_trigger = apicid;
++        return 0;
++    }
++    return 1;
++}
++
+ /*
+  * Local variables:
+  * mode: C
+diff -r da99d818b007 -r 9cdcedc133e5 xen/include/asm-x86/tboot.h
+--- a/xen/include/asm-x86/tboot.h	Mon Jan 09 17:07:32 2012 +0100
++++ b/xen/include/asm-x86/tboot.h	Wed Jan 11 10:34:45 2012 +0100
+@@ -85,7 +85,7 @@ typedef struct __packed {
+ typedef struct __packed {
+     /* version 3+ fields: */
+     uuid_t    uuid;              /* {663C8DFF-E8B3-4b82-AABF-19EA4D057A08} */
+-    uint32_t  version;           /* Version number; currently supports 0.4 */
++    uint32_t  version;           /* Version number; currently supports 0.6 */
+     uint32_t  log_addr;          /* physical addr of tb_log_t log */
+     uint32_t  shutdown_entry;    /* entry point for tboot shutdown */
+     uint32_t  shutdown_type;     /* type of shutdown (TB_SHUTDOWN_*) */
+@@ -99,6 +99,13 @@ typedef struct __packed {
+     /* version 4+ fields: */
+                                  /* populated by tboot; will be encrypted */
+     uint8_t   s3_key[TB_KEY_SIZE];
++    /* version 5+ fields: */
++    uint8_t   reserved_align[3]; /* used to 4byte-align num_in_wfs */
++    uint32_t  num_in_wfs;        /* number of processors in wait-for-SIPI */
++    /* version 6+ fields: */
++    uint32_t  flags;
++    uint64_t  ap_wake_addr;      /* phys addr of kernel/VMM SIPI vector */
++    uint32_t  ap_wake_trigger;   /* kernel/VMM writes APIC ID to wake AP */
+ } tboot_shared_t;
+ 
+ #define TB_SHUTDOWN_REBOOT      0
+@@ -107,6 +114,9 @@ typedef struct __packed {
+ #define TB_SHUTDOWN_S3          3
+ #define TB_SHUTDOWN_HALT        4
+ 
++#define TB_FLAG_AP_WAKE_SUPPORT   0x00000001  /* kernel/VMM use INIT-SIPI-SIPI
++                                                 if clear, ap_wake_* if set */
++
+ /* {663C8DFF-E8B3-4b82-AABF-19EA4D057A08} */
+ #define TBOOT_SHARED_UUID    { 0x663c8dff, 0xe8b3, 0x4b82, 0xaabf, \
+                                { 0x19, 0xea, 0x4d, 0x5, 0x7a, 0x8 } };
+@@ -120,6 +130,7 @@ int tboot_protect_mem_regions(void);
+ int tboot_parse_dmar_table(acpi_table_handler dmar_handler);
+ int tboot_s3_resume(void);
+ void tboot_s3_error(int error);
++int tboot_wake_ap(int apicid, unsigned long sipi_vec);
+ 
+ #endif /* __TBOOT_H__ */
+ 
+

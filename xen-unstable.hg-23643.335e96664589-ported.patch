@@ -1,0 +1,40 @@
+# HG changeset patch
+# User George Dunlap <george.dunlap@eu.citrix.com>
+# Date 1309548678 -3600
+# Node ID 335e96664589dd14dfce7ef72e3fee71ad9c39e3
+# Parent 0ef36ff05abed87efe69859276c7a8ce99058948
+xentrace: Allow tracing to be enabled at boot
+
+Add a "tevt_mask" parameter to the xen command-line, allowing
+trace records to be gathered early in boot.  They will be placed
+into the trace buffers, and read when the user runs "xentrace".
+
+Signed-off-by: George Dunlap <george.dunlap@eu.citrix.com>
+
+diff --git a/xen/common/trace.c b/xen/common/trace.c
+--- a/xen/common/trace.c
++++ b/xen/common/trace.c
+@@ -45,6 +45,8 @@ CHECK_t_buf;
+ /* opt_tbuf_size: trace buffer size (in pages) */
+ static unsigned int opt_tbuf_size = 0;
+ integer_param("tbuf_size", opt_tbuf_size);
++static unsigned int opt_tevt_mask;
++integer_param("tevt_mask", opt_tevt_mask);
+ 
+ /* Pointers to the meta-data objects for all system trace buffers */
+ static struct t_info *t_info;
+@@ -347,6 +349,14 @@ void __init init_trace_bufs(void)
+         goto fail;
+     }
+ 
++    if ( opt_tevt_mask )
++    {
++        printk("xentrace: Starting tracing, enabling mask %x\n",
++               opt_tevt_mask);
++        tb_event_mask = opt_tevt_mask;
++        tb_init_done=1;
++    }
++    
+     printk("Xen trace buffers: initialised\n");
+     wmb(); /* above must be visible before tb_init_done flag set */
+     tb_init_done = 1;

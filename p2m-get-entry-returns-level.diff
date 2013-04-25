@@ -1,0 +1,247 @@
+xen,p2m: get_entry returns level of entry as well
+
+Return the p2m level of the entry which filled this request.
+Intended to be used to see if pages returned by the balloon
+driver are part of a superpage, and reclaim them if so.
+
+Signed-off-by: George Dunlap <george.dunlap@eu.citrix.com>
+
+diff --git a/xen/arch/x86/hvm/hvm.c b/xen/arch/x86/hvm/hvm.c
+--- a/xen/arch/x86/hvm/hvm.c
++++ b/xen/arch/x86/hvm/hvm.c
+@@ -3724,6 +3724,7 @@
+         p2m_type_t t;
+         p2m_access_t ac;
+         mfn_t mfn;
++        int l;
+ 
+         /* Interface access to internal p2m accesses */
+         hvmmem_access_t memaccess[] = {
+@@ -3761,7 +3762,7 @@
+                 goto param_fail6;
+ 
+             rc = -ESRCH;
+-            mfn = p2m->get_entry(p2m, a.pfn, &t, &ac, p2m_query);
++            mfn = p2m->get_entry(p2m, a.pfn, &t, &ac, &l, p2m_query);
+ 
+             if ( mfn_x(mfn) == INVALID_MFN )
+                 goto param_fail6;
+diff --git a/xen/arch/x86/mm/hap/p2m-ept.c b/xen/arch/x86/mm/hap/p2m-ept.c
+--- a/xen/arch/x86/mm/hap/p2m-ept.c
++++ b/xen/arch/x86/mm/hap/p2m-ept.c
+@@ -527,14 +527,14 @@
+ /* Read ept p2m entries */
+ static mfn_t ept_get_entry(struct p2m_domain *p2m,
+                            unsigned long gfn, p2m_type_t *t, p2m_access_t* a,
+-                           p2m_query_t q)
++                           int *level, p2m_query_t q)
+ {
+     struct domain *d = p2m->domain;
+     ept_entry_t *table = map_domain_page(ept_get_asr(d));
+     unsigned long gfn_remainder = gfn;
+     ept_entry_t *ept_entry;
+     u32 index;
+-    int i;
++    int i=5;
+     int ret = 0;
+     mfn_t mfn = _mfn(INVALID_MFN);
+ 
+@@ -616,6 +616,7 @@
+     }
+ 
+ out:
++    *level=i+1;
+     unmap_domain_page(table);
+     return mfn;
+ }
+@@ -709,9 +710,10 @@
+ 
+ static mfn_t ept_get_entry_current(struct p2m_domain *p2m,
+                                    unsigned long gfn, p2m_type_t *t, p2m_access_t *a,
++                                   int *l,
+                                    p2m_query_t q)
+ {
+-    return ept_get_entry(p2m, gfn, t, a, q);
++    return ept_get_entry(p2m, gfn, t, a, l, q);
+ }
+ 
+ /*
+diff --git a/xen/arch/x86/mm/p2m.c b/xen/arch/x86/mm/p2m.c
+--- a/xen/arch/x86/mm/p2m.c
++++ b/xen/arch/x86/mm/p2m.c
+@@ -1579,7 +1579,7 @@
+ 
+ static mfn_t
+ p2m_gfn_to_mfn(struct p2m_domain *p2m, unsigned long gfn, p2m_type_t *t, p2m_access_t *a,
+-               p2m_query_t q)
++               int *level, p2m_query_t q)
+ {
+     mfn_t mfn;
+     paddr_t addr = ((paddr_t)gfn) << PAGE_SHIFT;
+@@ -1594,7 +1594,8 @@
+      * XXX we will return p2m_invalid for unmapped gfns */
+     *t = p2m_mmio_dm;
+     /* Not implemented except with EPT */
+-    *a = p2m_access_rwx; 
++    *a = p2m_access_rwx;
++    *level = 5;
+ 
+     mfn = pagetable_get_mfn(p2m_get_pagetable(p2m));
+ 
+@@ -1602,6 +1603,7 @@
+         /* This pfn is higher than the highest the p2m map currently holds */
+         return _mfn(INVALID_MFN);
+ 
++    *level = 4;
+ #if CONFIG_PAGING_LEVELS >= 4
+     {
+         l4_pgentry_t *l4e = map_domain_page(mfn_x(mfn));
+@@ -1615,6 +1617,7 @@
+         unmap_domain_page(l4e);
+     }
+ #endif
++    *level=3;
+     {
+         l3_pgentry_t *l3e = map_domain_page(mfn_x(mfn));
+ #if CONFIG_PAGING_LEVELS == 3
+@@ -1662,6 +1665,7 @@
+ 
+     l2e = map_domain_page(mfn_x(mfn));
+     l2e += l2_table_offset(addr);
++    *level=2;
+ 
+ pod_retry_l2:
+     if ( (l2e_get_flags(*l2e) & _PAGE_PRESENT) == 0 )
+@@ -1695,6 +1699,7 @@
+ 
+     l1e = map_domain_page(mfn_x(mfn));
+     l1e += l1_table_offset(addr);
++    *level=1;
+ pod_retry_l1:
+     if ( (l1e_get_flags(*l1e) & _PAGE_PRESENT) == 0 )
+     {
+@@ -1723,7 +1728,7 @@
+ /* Read the current domain's p2m table (through the linear mapping). */
+ static mfn_t p2m_gfn_to_mfn_current(struct p2m_domain *p2m,
+                                     unsigned long gfn, p2m_type_t *t, p2m_access_t *a,
+-                                    p2m_query_t q)
++                                    int *level, p2m_query_t q)
+ {
+     mfn_t mfn = _mfn(INVALID_MFN);
+     p2m_type_t p2mt = p2m_mmio_dm;
+@@ -1735,6 +1740,7 @@
+ 
+     /* Not currently implemented except for EPT */
+     *a = p2m_access_rwx;
++    *level=5;
+ 
+     if ( gfn <= p2m->max_mapped_pfn )
+     {
+@@ -1749,6 +1755,7 @@
+                / sizeof(l1_pgentry_t));
+ 
+ #if CONFIG_PAGING_LEVELS >= 4
++    *level=3;
+         /*
+          * Read & process L3
+          */
+@@ -1802,6 +1809,7 @@
+         p2m_entry = &__linear_l1_table[l1_linear_offset(RO_MPT_VIRT_START)
+                                        + l2_linear_offset(addr)];
+ 
++    *level=2;
+     pod_retry_l2:
+         ret = __copy_from_user(&l2e,
+                                p2m_entry,
+@@ -1855,6 +1863,7 @@
+ 
+         /* Need to __copy_from_user because the p2m is sparse and this
+          * part might not exist */
++    *level=1;
+     pod_retry_l1:
+         p2m_entry = &phys_to_machine_mapping[gfn];
+ 
+@@ -2069,6 +2078,7 @@
+     unsigned long gfn;
+     p2m_type_t t;
+     p2m_access_t a;
++    int l;
+     mfn_t mfn;
+ #endif
+ 
+@@ -2079,7 +2089,7 @@
+     {
+         if ( atomic_read(&d->shr_pages) == 0 )
+             break;
+-        mfn = p2m->get_entry(p2m, gfn, &t, &a, p2m_query);
++        mfn = p2m->get_entry(p2m, gfn, &t, &a, &l, p2m_query);
+         if ( mfn_valid(mfn) && (t == p2m_ram_shared) )
+             BUG_ON(mem_sharing_unshare_page(p2m, gfn, MEM_SHARING_DESTROY_GFN));
+     }
+@@ -2377,6 +2387,7 @@
+     mfn_t mfn_return;
+     p2m_type_t t;
+     p2m_access_t a;
++    int l;
+ 
+     if ( !paging_mode_translate(p2m->domain) )
+     {
+@@ -2392,7 +2403,7 @@
+     {
+         for ( i = 0; i < (1UL << page_order); i++ )
+         {
+-            mfn_return = p2m->get_entry(p2m, gfn + i, &t, &a, p2m_query);
++            mfn_return = p2m->get_entry(p2m, gfn + i, &t, &a, &l, p2m_query);
+             if ( !p2m_is_grant(t) )
+                 set_gpfn_from_mfn(mfn+i, INVALID_M2P_ENTRY);
+             ASSERT( !p2m_is_valid(t) || mfn + i == mfn_x(mfn_return) );
+@@ -3081,10 +3092,11 @@
+     mfn_t mfn;
+     p2m_type_t p2mt;
+     p2m_access_t p2ma;
++    int p2ml;
+     
+     /* First, handle rx2rw conversion automatically */
+     p2m_lock(p2m);
+-    mfn = p2m->get_entry(p2m, gfn, &p2mt, &p2ma, p2m_query);
++    mfn = p2m->get_entry(p2m, gfn, &p2mt, &p2ma, &p2ml, p2m_query);
+ 
+     if ( access_w && p2ma == p2m_access_rx2rw ) 
+     {
+diff --git a/xen/include/asm-x86/p2m.h b/xen/include/asm-x86/p2m.h
+--- a/xen/include/asm-x86/p2m.h
++++ b/xen/include/asm-x86/p2m.h
+@@ -216,11 +216,13 @@
+                                        unsigned long gfn,
+                                        p2m_type_t *p2mt,
+                                        p2m_access_t *p2ma,
++                                       int *level,
+                                        p2m_query_t q);
+     mfn_t              (*get_entry_current)(struct p2m_domain *p2m,
+                                             unsigned long gfn,
+                                             p2m_type_t *p2mt,
+                                             p2m_access_t *p2ma,
++                                            int *level,
+                                             p2m_query_t q);
+     void               (*change_entry_type_global)(struct p2m_domain *p2m,
+                                                    p2m_type_t ot,
+@@ -334,7 +336,8 @@
+                                             p2m_access_t *a,
+                                             p2m_query_t q)
+ {
+-    return p2m->get_entry_current(p2m, gfn, t, a, q);
++    int l;
++    return p2m->get_entry_current(p2m, gfn, t, a, &l, q);
+ }
+ 
+ /* Read P2M table, mapping pages as we go.
+@@ -344,7 +347,8 @@
+                               p2m_type_t *t, p2m_query_t q)
+ {
+     p2m_access_t a = 0;
+-    return p2m->get_entry(p2m, gfn, t, &a, q);
++    int l;
++    return p2m->get_entry(p2m, gfn, t, &a, &l, q);
+ }
+ 
+ 

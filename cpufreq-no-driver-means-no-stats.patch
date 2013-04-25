@@ -1,0 +1,23 @@
+cpufreq: P state stats aren't available if there is no cpufreq driver
+
+If there is no cpufreq driver (e.g., with an AMD Opteron 8212) then
+reading the P state statistics causes a deadlock as an uninitialized
+spinlock is locked in do_get_pm_info(). cpufreq_statistic_init() is
+not called if cpufreq_driver == NULL.
+
+Signed-off-by: David Vrabel <david.vrabel@citrix.com>
+
+# HG changeset patch Parent 1624e4c3e6ec296f3547264bee3d5cfa1412f573
+
+diff -r 1624e4c3e6ec xen/drivers/acpi/pmstat.c
+--- a/xen/drivers/acpi/pmstat.c	Tue Jul 24 16:23:27 2012 +0100
++++ b/xen/drivers/acpi/pmstat.c	Thu Jul 26 17:05:44 2012 +0100
+@@ -68,6 +68,8 @@ int do_get_pm_info(struct xen_sysctl_get
+     case PMSTAT_PX:
+         if ( !(xen_processor_pmbits & XEN_PROCESSOR_PM_PX) )
+             return -ENODEV;
++        if ( !cpufreq_driver )
++            return -ENODEV;
+         if ( !pmpt || !(pmpt->perf.init & XEN_PX_INIT) )
+             return -EINVAL;
+         break;

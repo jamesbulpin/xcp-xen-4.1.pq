@@ -1,0 +1,153 @@
+# HG changeset patch
+# User George Dunlap <george.dunlap@eu.citrix.com>
+# Date 1309548575 -3600
+# Node ID dc5bc760ec2f18976b09c271d398f4f44281087e
+# Parent e6c93b6cace0e123b720f968814d6cb0cfa7cd30
+xentrace: Add tracing for IRQ-related events
+
+Add tracing for various IRQ-related events.  Also, move
+the exiting TRC_TRACE_IRQ from the "generic" class into the
+new TRC_HW_IRQ sub-class.
+
+Signed-off-by: George Dunlap <george.dunlap@eu.citrix.com>
+
+diff -r e6c93b6cace0 xen/arch/x86/io_apic.c
+--- a/xen/arch/x86/io_apic.c
++++ b/xen/arch/x86/io_apic.c
+@@ -37,6 +37,7 @@
+ #include <mach_apic.h>
+ #include <io_ports.h>
+ #include <public/physdev.h>
++#include <xen/trace.h>
+ 
+ /* Where if anywhere is the i8259 connect in external int mode */
+ static struct { int pin, apic; } ioapic_i8259 = { -1, -1 };
+@@ -491,8 +492,14 @@ fastcall void smp_irq_move_cleanup_inter
+          */
+         if (irr  & (1 << (vector % 32))) {
+             genapic->send_IPI_self(IRQ_MOVE_CLEANUP_VECTOR);
++            TRACE_3D(TRC_HW_IRQ_MOVE_CLEANUP_DELAY,
++                     irq, vector, smp_processor_id());
+             goto unlock;
+         }
++
++        TRACE_3D(TRC_HW_IRQ_MOVE_CLEANUP,
++                 irq, vector, smp_processor_id());
++
+         __get_cpu_var(vector_irq)[vector] = -1;
+         cfg->move_cleanup_count--;
+ 
+diff -r e6c93b6cace0 xen/arch/x86/irq.c
+--- a/xen/arch/x86/irq.c
++++ b/xen/arch/x86/irq.c
+@@ -102,6 +102,15 @@ void unlock_vector_lock(void)
+     spin_unlock(&vector_lock);
+ }
+ 
++static void trace_irq_mask(u32 event, int irq, int vector, cpumask_t *mask)
++{
++    struct {
++        int irq, vec;
++        cpumask_t mask;
++    } d = { irq, vector, *mask };
++    trace_var(event, 1, sizeof(d), (unsigned char *)&d);
++}
++
+ static int __init __bind_irq_vector(int irq, int vector, cpumask_t cpu_mask)
+ {
+     cpumask_t online_mask;
+@@ -118,6 +127,7 @@ static int __init __bind_irq_vector(int 
+         return 0;
+     if (cfg->vector != IRQ_VECTOR_UNASSIGNED) 
+         return -EBUSY;
++    trace_irq_mask(TRC_HW_IRQ_BIND_VECTOR, irq, vector, &online_mask);
+     for_each_cpu_mask(cpu, online_mask)
+         per_cpu(vector_irq, cpu)[vector] = irq;
+     cfg->vector = vector;
+@@ -216,6 +226,8 @@ static void __clear_irq_vector(int irq)
+     vector = cfg->vector;
+     cpus_and(tmp_mask, cfg->cpu_mask, cpu_online_map);
+ 
++    trace_irq_mask(TRC_HW_IRQ_CLEAR_VECTOR, irq, vector, &tmp_mask);
++
+     for_each_cpu_mask(cpu, tmp_mask)
+         per_cpu(vector_irq, cpu)[vector] = -1;
+ 
+@@ -232,6 +244,8 @@ static void __clear_irq_vector(int irq)
+                                 vector++) {
+             if (per_cpu(vector_irq, cpu)[vector] != irq)
+                 continue;
++            TRACE_3D(TRC_HW_IRQ_MOVE_FINISH,
++                     irq, vector, cpu);
+             per_cpu(vector_irq, cpu)[vector] = -1;
+              break;
+         }
+@@ -491,6 +505,7 @@ next:
+             cfg->move_in_progress = 1;
+             cpus_copy(cfg->old_cpu_mask, cfg->cpu_mask);
+         }
++        trace_irq_mask(TRC_HW_IRQ_ASSIGN_VECTOR, irq, vector, &tmp_mask);
+         for_each_cpu_mask(new_cpu, tmp_mask)
+             per_cpu(vector_irq, new_cpu)[vector] = irq;
+         cfg->vector = vector;
+@@ -649,6 +664,7 @@ asmlinkage void do_IRQ(struct cpu_user_r
+         printk("%s: %d.%d No irq handler for vector (irq %d)\n",
+                 __func__, smp_processor_id(), vector, irq);
+         set_irq_regs(old_regs);
++        TRACE_1D(TRC_HW_IRQ_UNMAPPED_VECTOR, vector);
+         return;
+     }
+ 
+@@ -689,7 +705,7 @@ asmlinkage void do_IRQ(struct cpu_user_r
+ 
+         tsc_in = tb_init_done ? get_cycles() : 0;
+         __do_IRQ_guest(irq);
+-        TRACE_3D(TRC_TRACE_IRQ, irq, tsc_in, get_cycles());
++        TRACE_3D(TRC_HW_IRQ_HANDLED, irq, tsc_in, get_cycles());
+         goto out_no_end;
+     }
+ 
+@@ -712,7 +728,7 @@ asmlinkage void do_IRQ(struct cpu_user_r
+         spin_unlock_irq(&desc->lock);
+         tsc_in = tb_init_done ? get_cycles() : 0;
+         action->handler(irq, action->dev_id, regs);
+-        TRACE_3D(TRC_TRACE_IRQ, irq, tsc_in, get_cycles());
++        TRACE_3D(TRC_HW_IRQ_HANDLED, irq, tsc_in, get_cycles());
+         spin_lock_irq(&desc->lock);
+     }
+ 
+diff -r e6c93b6cace0 xen/include/public/trace.h
+--- a/xen/include/public/trace.h
++++ b/xen/include/public/trace.h
+@@ -59,12 +59,12 @@
+ 
+ /* Trace classes for Hardware */
+ #define TRC_HW_PM           0x00801000   /* Power management traces */
++#define TRC_HW_IRQ          0x00802000   /* Traces relating to the handling of IRQs */
+ 
+ /* Trace events per class */
+ #define TRC_LOST_RECORDS        (TRC_GEN + 1)
+ #define TRC_TRACE_WRAP_BUFFER  (TRC_GEN + 2)
+ #define TRC_TRACE_CPU_CHANGE    (TRC_GEN + 3)
+-#define TRC_TRACE_IRQ           (TRC_GEN + 4)
+ 
+ #define TRC_SCHED_RUNSTATE_CHANGE   (TRC_SCHED_MIN + 1)
+ #define TRC_SCHED_CONTINUE_RUNNING  (TRC_SCHED_MIN + 2)
+@@ -172,6 +172,17 @@
+ #define TRC_PM_IDLE_ENTRY       (TRC_HW_PM + 0x02)
+ #define TRC_PM_IDLE_EXIT        (TRC_HW_PM + 0x03)
+ 
++/* Trace events for IRQs */
++#define TRC_HW_IRQ_MOVE_CLEANUP_DELAY (TRC_HW_IRQ + 0x1)
++#define TRC_HW_IRQ_MOVE_CLEANUP       (TRC_HW_IRQ + 0x2)
++#define TRC_HW_IRQ_BIND_VECTOR        (TRC_HW_IRQ + 0x3)
++#define TRC_HW_IRQ_CLEAR_VECTOR       (TRC_HW_IRQ + 0x4)
++#define TRC_HW_IRQ_MOVE_FINISH        (TRC_HW_IRQ + 0x5)
++#define TRC_HW_IRQ_ASSIGN_VECTOR      (TRC_HW_IRQ + 0x6)
++#define TRC_HW_IRQ_UNMAPPED_VECTOR    (TRC_HW_IRQ + 0x7)
++#define TRC_HW_IRQ_HANDLED            (TRC_HW_IRQ + 0x8)
++
++
+ /* This structure represents a single trace buffer record. */
+ struct t_rec {
+     uint32_t event:28;

@@ -1,0 +1,19 @@
+Set the "seconds elapsed" field of DHCP packets to constant 4, instead
+of constant zero, so that BOOTP relays that use a threshold to decide
+whether to relay traffic will always relay our packets.
+
+RFC 1542 says it SHOULD be an actual timer, and SHOULD NOT be a
+constant, but many real NICs set it to constant 4 or 6.  (RFC 951
+allowed for it to be a constant if no local clock was available.)
+
+diff -r 151fb45fdfbd tools/firmware/etherboot/gpxe-1.0.0/src/net/udp/dhcp.c
+--- a/tools/firmware/etherboot/ipxe-v1.0.0/src/net/udp/dhcp.c	Tue Feb 09 17:19:17 2010 +0000
++++ b/tools/firmware/etherboot/ipxe-v1.0.0/src/net/udp/dhcp.c	Tue Feb 09 17:20:21 2010 +0000
+@@ -1050,6 +1050,7 @@
+ 	dhcphdr->magic = htonl ( DHCP_MAGIC_COOKIE );
+ 	dhcphdr->htype = ntohs ( netdev->ll_protocol->ll_proto );
+ 	dhcphdr->op = dhcp_op[msgtype];
++	dhcphdr->secs = htons(4); /* Helps with BOOTP relay agents */
+ 	chaddr = dhcp_chaddr ( netdev, &dhcphdr->hlen, &dhcphdr->flags );
+ 	memcpy ( dhcphdr->chaddr, chaddr, dhcphdr->hlen );
+ 	memcpy ( dhcphdr->options, options, options_len );

@@ -1,0 +1,62 @@
+# HG changeset patch
+# User Frediano Ziglio <frediano.ziglio@citrix.com>
+# Date 1336394303 -3600
+# Node ID 8579bff9dc3f1aaf5543fc71d1c0f5e5c81f5222
+# Parent  efb4061b9ce8b36fe64571ffecda732dacf4aab0
+vgabios: Reduce stack usage getting mode informations
+
+Informations are stored in a structure that is smaller than final one.
+Previous code copy this structure to stack extending with zeroes then
+update it and copy to caller while now the not-extended version is
+copied into stack and then is extended during copy reducing stack
+usage.
+
+Signed-off-by: Frediano Ziglio <frediano.ziglio@citrix.com>
+Committed-by: Keir Fraser <keir@xen.org>
+
+diff -r efb4061b9ce8 -r 8579bff9dc3f tools/firmware/vgabios/vbe.c
+--- a/tools/firmware/vgabios/vbe.c	Mon May 07 13:37:47 2012 +0100
++++ b/tools/firmware/vgabios/vbe.c	Mon May 07 13:38:23 2012 +0100
+@@ -912,9 +912,9 @@ Bit16u *AX;Bit16u CX; Bit16u ES;Bit16u D
+         // error by default is 0x014f which means supported but error
+         Bit16u                 result=0x014f;
+         Bit16u            ss=get_SS();
+-        ModeInfoBlock     info;
+         ModeInfoListItem  *cur_info;
+         Boolean           using_lfb;
++        ModeInfoBlockCompact   info;
+ 
+ #ifdef DEBUG
+         printf("VBE vbe_biosfn_return_mode_information ES%x DI%x CX%x\n",ES,DI,CX);
+@@ -931,7 +931,6 @@ Bit16u *AX;Bit16u CX; Bit16u ES;Bit16u D
+ #ifdef DEBUG
+                 printf("VBE found mode %x\n",CX);
+ #endif        
+-                memsetb(ss, &info, 0, sizeof(ModeInfoBlock));
+                 memcpyb(ss, &info, 0xc000, &(cur_info->info), sizeof(ModeInfoBlockCompact));
+                 if (using_lfb) {
+                   info.NumberOfBanks = 1;
+@@ -948,6 +947,10 @@ Bit16u *AX;Bit16u CX; Bit16u ES;Bit16u D
+                 info.PhysBasePtr |= inw(VBE_DISPI_IOPORT_DATA);
+ #endif 							
+                 result = 0x4f;
++
++                // copy updates in mode_info_block back
++                memsetb(ES, DI, 0, sizeof(ModeInfoBlock));
++                memcpyb(ES, DI, ss, &info, sizeof(info));
+         }
+         else
+         {
+@@ -955,12 +958,6 @@ Bit16u *AX;Bit16u CX; Bit16u ES;Bit16u D
+                 printf("VBE *NOT* found mode %x\n",CX);
+ #endif
+         }
+-        
+-        if (result == 0x4f)
+-        {
+-                // copy updates in mode_info_block back
+-                memcpyb(ES, DI, ss, &info, sizeof(info));
+-        }
+ 
+         write_word(ss, AX, result);
+ }

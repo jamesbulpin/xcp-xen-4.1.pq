@@ -1,0 +1,38 @@
+# HG changeset patch
+# User Ian Campbell <ian.campbell@citrix.com>
+# Date 1339167938 -3600
+# Node ID cfbf0c3513d6a75e723542f270376e04436f524c
+# Parent  4d40d7a4c6f1fcdb65558adb5b85e48e4600c190
+libxc: do not "panic" if a kernel is not a bzImage.
+
+Up until the point where we think this is a bzImage there is no point in
+printing panicy messages -- some other loader will have a go (probably the
+compressed ELF one)
+
+Signed-off-by: Ian Campbell <ian.campbell@citrix.com>
+Acked-by: Ian Jackson <ian.jackson@eu.citrix.com>
+Committed-by: Ian Jackson <ian.jackson@eu.citrix.com>
+
+diff -r 4d40d7a4c6f1 -r cfbf0c3513d6 tools/libxc/xc_dom_bzimageloader.c
+--- a/tools/libxc/xc_dom_bzimageloader.c
++++ b/tools/libxc/xc_dom_bzimageloader.c
+@@ -575,8 +575,7 @@ static int xc_dom_probe_bzimage_kernel(s
+ 
+     if ( dom->kernel_size < sizeof(struct setup_header) )
+     {
+-        xc_dom_panic(dom->xch, XC_INTERNAL_ERROR,
+-                     "%s: kernel image too small", __FUNCTION__);
++        xc_dom_printf(dom->xch, "%s: kernel image too small", __FUNCTION__);
+         return -EINVAL;
+     }
+ 
+@@ -584,8 +583,7 @@ static int xc_dom_probe_bzimage_kernel(s
+ 
+     if ( memcmp(&hdr->header, HDR_MAGIC, HDR_MAGIC_SZ) != 0 )
+     {
+-        xc_dom_panic(dom->xch, XC_INVALID_KERNEL,
+-                     "%s: kernel is not a bzImage", __FUNCTION__);
++        xc_dom_printf(dom->xch, "%s: kernel is not a bzImage", __FUNCTION__);
+         return -EINVAL;
+     }
+ 

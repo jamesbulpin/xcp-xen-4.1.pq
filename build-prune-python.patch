@@ -1,0 +1,63 @@
+# HG changeset patch
+# Parent ceab8d4adc02793df8514b14f173c2a67bdd6684
+Build: Prune python, leaving lowlevel bindings
+
+UPSTREAM: Figure out why we need the lowlevel bindings, make a config option
+
+diff -r ceab8d4adc02 tools/python/Makefile
+--- a/tools/python/Makefile
++++ b/tools/python/Makefile
+@@ -63,7 +63,7 @@ refresh-po: $(POTFILE)
+ 	$(MSGFMT) -c -o $@ $<
+ 
+ .PHONY: install
+-install: install-messages install-dtd
++install: all
+ 	CC="$(CC)" CFLAGS="$(CFLAGS)" $(PYTHON) setup.py install \
+ 		$(PYTHON_PREFIX_ARG) --root="$(DESTDIR)" --force
+ 
+diff -r ceab8d4adc02 tools/python/setup.py
+--- a/tools/python/setup.py
++++ b/tools/python/setup.py
+@@ -115,39 +115,17 @@ xl = Extension("xl",
+                include_dirs       = include_dirs + [ "xen/lowlevel/xl" ],
+                library_dirs       = library_dirs,
+                libraries          = libraries + ["xenlight" ] + blktap_ctl_libs + uuid_libs,
+-               depends            = depends + blktab_ctl_depends +
++               depends            = depends + #blktab_ctl_depends +
+                                     [ XEN_ROOT + "/tools/libxl/libxenlight.so" ],
+                sources            = [ "xen/lowlevel/xl/xl.c", "xen/lowlevel/xl/_pyxl_types.c" ])
+ 
+-modules = [ xc, xs, ptsname, acm, flask, xl ]
+-if plat == 'SunOS':
+-    modules.extend([ scf, process ])
+-if plat == 'Linux':
+-    modules.extend([ checkpoint, netlink ])
++modules = [ xc, xs, ptsname, xl ]
+ 
+ setup(name            = 'xen',
+       version         = '3.0',
+       description     = 'Xen',
+       packages        = ['xen',
+                          'xen.lowlevel',
+-                         'xen.util',
+-                         'xen.util.xsm',
+-                         'xen.util.xsm.dummy',
+-                         'xen.util.xsm.flask',
+-                         'xen.util.xsm.acm',
+-                         'xen.xend',
+-                         'xen.xend.server',
+-                         'xen.xend.xenstore',
+-                         'xen.xm',
+-                         'xen.web',
+-                         'xen.sv',
+-                         'xen.xsview',
+-                         'xen.remus',
+-
+-                         'xen.xend.tests',
+-                         'xen.xend.server.tests',
+-                         'xen.xend.xenstore.tests',
+-                         'xen.xm.tests'
+                          ],
+       ext_package = "xen.lowlevel",
+       ext_modules = modules

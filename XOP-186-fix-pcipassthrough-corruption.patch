@@ -1,0 +1,79 @@
+# HG changeset patch
+# Parent 000f1944c13c49fb39a78e727da530da962d8fe2
+x86/passthrough: Fix corruption caused by race conditions between device allocation and deallocation to a domain.
+
+A toolstack, when dealing with a domain using PCIPassthrough, could
+reasonably be expected to issue DOMCTL_deassign_device hypercalls to
+remove all passed through devices before issuing a DOMCTL_destroydomain
+hypercall to kill the domain.  In the case where a toolstack is perhaps
+less sensible in this regard, the hypervisor should not fall over.
+
+In domain_kill(), pci_release_devices() searches the alldevs_list list
+looking for PCI devices still assigned to the domain.  If the toolstack
+has correctly deassigned all devices before killing the domain, this
+loop does nothing.
+
+However, if there are still devices attached to the domain, the loop
+will call pci_cleanup_msi() without unbinding the pirq from the domain.
+This eventually calls destroy_irq() which xfree()'s the action.
+
+However, as the irq_desc->action pointer is abused in an unsafe matter,
+without unbinding first (which at least correctly cleans up), the action
+is actually an irq_guest_action_t* rather than an irqaction*, meaning
+that the cpu_eoi_map is leaked, and eoi_timer is free()'d while still
+being on a pcpu's inactive_timer list.  As a result, when this free()'d
+memory gets reused, the inactive_timer list becomes corrupt, and
+list_*** operations will corrupt hypervisor memory.
+
+If the above were not bad enough, the loop in pci_release_devices()
+still leaves references to the irq it destroyed in domain->arch.pirq_irq
+and irq_pirq, meaning that a later loop, free_domain_pirqs(), which
+happens as a result of complete_domain_destroy() will unbind and destroy
+all irqs which were still bound to the domain, resulting in a double
+destroy of any irq which was still bound to the domain at the point at
+which the DOMCTL_destroydomain hypercall happened.
+
+Because of the allocation of irqs from find_unassigned_irq(), the lowest
+free irq number is going to be handed back from create_irq().
+
+There is a further race condition between the original (incorrect) call
+to destroy_irq() from pci_release_devices(), and the later call to
+free_domain_pirqs() (which happens in a softirq context at some point
+after the domain has officially died) during which the same irq number
+(which is still referenced in a stale way in domain->arch.pirq_irq and
+irq_pirq) has been allocated to a new domain via a PHYSDEVOP_map_pirq
+hypercall (Say perhaps in the case of rebooting a domain).
+
+In this case, the cleanup for the dead domain will free the recently
+bound irq under the feet of the new domain.  Furthermore, after the irq
+has been incorrectly destroyed, the same domain with another
+PHYSDEVOP_map_pirq hypercall can be allocated the same irq number as
+before, leading to an error along the lines of:
+
+../physdev.c:188: dom54: -1:-1 already mapped to 74
+
+In this case, the pirq_irq and irq_pirq mappings get updated to the new
+PCI device from the latter PHYSDEVOP_map_pirq hypercall, and the IOMMU
+interrupt remapping registers get updated, leading to IOMMU Primary
+Pending Fault due to source-id verification failure for incoming
+interrupts from the passed through device.
+
+
+The easy fix is to simply deassign the device in pci_release_devices()
+and leave all the real cleanup to the free_domain_pirqs() which
+correctly unbinds and destroys the irq without leaving stale references
+around.
+
+Signed-off-by: Andrew Cooper <andrew.cooper3@citrix.com>
+
+diff -r 000f1944c13c xen/drivers/passthrough/pci.c
+--- a/xen/drivers/passthrough/pci.c
++++ b/xen/drivers/passthrough/pci.c
+@@ -332,7 +332,6 @@ void pci_release_devices(struct domain *
+     pci_clean_dpci_irqs(d);
+     while ( (pdev = pci_get_pdev_by_domain(d, -1, -1)) )
+     {
+-        pci_cleanup_msi(pdev);
+         bus = pdev->bus; devfn = pdev->devfn;
+         if ( deassign_device(d, bus, devfn) )
+             printk("domain %d: deassign device (%02x:%02x.%x) failed!\n",

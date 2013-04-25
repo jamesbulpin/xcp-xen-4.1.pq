@@ -1,0 +1,18 @@
+Ignore pxenv_udp_open src_ip address,
+since some NBPs (Altiris) pass in bogus data.
+
+diff -r 40193f44a1cc tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/interface/pxe/pxe_udp.c
+--- a/tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/interface/pxe/pxe_udp.c	Fri Aug 14 11:15:29 2009 +0100
++++ b/tools/firmware/etherboot/ipxe-v1.0.0/src/arch/i386/interface/pxe/pxe_udp.c	Fri Aug 14 14:23:27 2009 +0100
+@@ -165,8 +165,9 @@
+ 	DBG ( "PXENV_UDP_OPEN" );
+ 
+ 	/* Record source IP address */
+-	pxe_udp.local.sin_addr.s_addr = pxenv_udp_open->src_ip;
+-	DBG ( " %s", inet_ntoa ( pxe_udp.local.sin_addr ) );
++	// No, don't: Altiris passes in gibberish
++	// pxe_udp.local.sin_addr.s_addr = pxenv_udp_open->src_ip;
++	DBG ( " (%s)", inet_ntoa ( pxe_udp.local.sin_addr ) );
+ 
+ 	/* Open promiscuous UDP connection */
+ 	xfer_close ( &pxe_udp.xfer, 0 );

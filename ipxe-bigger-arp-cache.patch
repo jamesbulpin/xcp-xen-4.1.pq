@@ -1,0 +1,15 @@
+Expand the ARP cache to be bigger than the few entries needed for 
+initial PXE, so PVS can talk to all its servers.
+
+diff -r 7786d3621804 tools/firmware/etherboot/ipxe-v1.0.0/src/net/arp.c
+--- a/tools/firmware/etherboot/ipxe-v1.0.0/src/net/arp.c	Fri Aug 14 10:48:22 2009 +0100
++++ b/tools/firmware/etherboot/ipxe-v1.0.0/src/net/arp.c	Fri Aug 14 11:12:58 2009 +0100
+@@ -59,7 +59,7 @@
+  * This is a global cache, covering all network interfaces,
+  * network-layer protocols and link-layer protocols.
+  */
+-#define NUM_ARP_ENTRIES 4
++#define NUM_ARP_ENTRIES 16
+ 
+ /** The ARP cache */
+ static struct arp_entry arp_table[NUM_ARP_ENTRIES];

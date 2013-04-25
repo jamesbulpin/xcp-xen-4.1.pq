@@ -1,0 +1,57 @@
+# HG changeset patch
+# Parent afff4fe77b17229ad582b439418632761258bd69
+diff -r afff4fe77b17 -r f6ee93ac33d8 xen/drivers/passthrough/vtd/dmar.c
+--- a/xen/drivers/passthrough/vtd/dmar.c
++++ b/xen/drivers/passthrough/vtd/dmar.c
+@@ -323,7 +323,7 @@ static int __init acpi_parse_dev_scope(v
+                 bus, path->dev, path->fn, PCI_SUBORDINATE_BUS);
+             if ( iommu_verbose )
+                 dprintk(VTDPREFIX,
+-                        "  bridge: %x:%x.%x  start = %x sec = %x  sub = %x\n",
++                        "  bridge: %02x:%02x.%u  start = %x sec = %x  sub = %x\n",
+                         bus, path->dev, path->fn,
+                         acpi_scope->start_bus, sec_bus, sub_bus);
+ 
+@@ -332,13 +332,13 @@ static int __init acpi_parse_dev_scope(v
+ 
+         case ACPI_DEV_MSI_HPET:
+             if ( iommu_verbose )
+-                dprintk(VTDPREFIX, "  MSI HPET: %x:%x.%x\n",
++                dprintk(VTDPREFIX, "  MSI HPET: %02x:%02x.%u\n",
+                         bus, path->dev, path->fn);
+             break;
+ 
+         case ACPI_DEV_ENDPOINT:
+             if ( iommu_verbose )
+-                dprintk(VTDPREFIX, "  endpoint: %x:%x.%x\n",
++                dprintk(VTDPREFIX, "  endpoint: %02x:%02x.%u\n",
+                         bus, path->dev, path->fn);
+ 
+             if ( type == DMAR_TYPE )
+@@ -353,7 +353,7 @@ static int __init acpi_parse_dev_scope(v
+ 
+         case ACPI_DEV_IOAPIC:
+             if ( iommu_verbose )
+-                dprintk(VTDPREFIX, "  IOAPIC: %x:%x.%x\n",
++                dprintk(VTDPREFIX, "  IOAPIC: %02x:%02x.%u\n",
+                         bus, path->dev, path->fn);
+ 
+             if ( type == DMAR_TYPE )
+@@ -461,7 +461,7 @@ acpi_parse_one_drhd(struct acpi_dmar_ent
+             if ( pci_device_detect(b, d, f) == 0 )
+             {
+                 dprintk(XENLOG_WARNING VTDPREFIX,
+-                    "  Non-existent device (%x:%x.%x) is reported "
++                    "  Non-existent device (%02x:%02x.%u) is reported "
+                     "in this DRHD's scope!\n", b, d, f);
+                 invalid_cnt++;
+             }
+@@ -559,7 +559,7 @@ acpi_parse_one_rmrr(struct acpi_dmar_ent
+             if ( pci_device_detect(b, d, f) == 0 )
+             {
+                 dprintk(XENLOG_WARNING VTDPREFIX,
+-                    "  Non-existent device (%x:%x.%x) is reported "
++                    "  Non-existent device (%02x:%02x.%u) is reported "
+                     "in RMRR (%"PRIx64", %"PRIx64")'s scope!\n",
+                     b, d, f, rmrru->base_address, rmrru->end_address);
+                 ignore = 1;

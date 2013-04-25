@@ -1,0 +1,234 @@
+p2m: Keep statistics on order of p2m entries
+
+Count the number of 4kiB, 2MiB, and 1GiB p2m entries.
+
+Signed-off-by: George Dunlap <george.dunlap@eu.citrix.com>
+
+diff -r c280d86f64ef xen/arch/x86/mm/hap/p2m-ept.c
+--- a/xen/arch/x86/mm/hap/p2m-ept.c	Mon Apr 18 11:56:07 2011 +0100
++++ b/xen/arch/x86/mm/hap/p2m-ept.c	Tue May 03 17:21:12 2011 +0100
+@@ -39,6 +39,8 @@
+ 
+ #define is_epte_present(ept_entry)      ((ept_entry)->epte & 0x7)
+ #define is_epte_superpage(ept_entry)    ((ept_entry)->sp)
++#define is_epte_countable(ept_entry)    (is_epte_present(ept_entry) \
++                                         || ((ept_entry)->sa_p2mt == p2m_populate_on_demand))
+ 
+ /* Non-ept "lock-and-check" wrapper */
+ static int ept_pod_check_and_populate(struct p2m_domain *p2m, unsigned long gfn,
+@@ -167,11 +169,14 @@
+ void ept_free_entry(struct p2m_domain *p2m, ept_entry_t *ept_entry, int level)
+ {
+     /* End if the entry is a leaf entry. */
+-    if ( level == 0 || !is_epte_present(ept_entry) ||
+-         is_epte_superpage(ept_entry) )
++    if ( level == 0 || !is_epte_present(ept_entry) || is_epte_superpage(ept_entry) )
++    {
++        if ( is_epte_countable(ept_entry) )
++            p2m->stats.entries[level]--;
+         return;
++    }
+ 
+-    if ( level > 1 )
++    if ( level > 0 )
+     {
+         ept_entry_t *epte = map_domain_page(ept_entry->mfn);
+         for ( int i = 0; i < EPT_PAGETABLE_ENTRIES; i++ )
+@@ -217,7 +222,10 @@
+         ept_p2m_type_to_flags(epte, epte->sa_p2mt, epte->access);
+ 
+         if ( (level - 1) == target )
++        {
++            p2m->stats.entries[target]++;
+             continue;
++        }
+ 
+         ASSERT(is_epte_superpage(epte));
+ 
+@@ -398,6 +406,10 @@
+             ept_p2m_type_to_flags(&new_entry, p2mt, p2ma);
+         }
+ 
++        /* old_entry will be handled by ept_free_entry below */
++        if ( is_epte_countable(&new_entry) )
++            p2m->stats.entries[i]++;
++
+         atomic_write_ept_entry(ept_entry, new_entry);
+     }
+     else
+@@ -410,12 +422,16 @@
+ 
+         split_ept_entry = atomic_read_ept_entry(ept_entry);
+ 
++        /* Accounting should be OK here; split_ept_entry bump the counts,
++         * free_entry will reduce them. */
+         if ( !ept_split_super_page(p2m, &split_ept_entry, i, target) )
+         {
+             ept_free_entry(p2m, &split_ept_entry, i);
+             goto out;
+         }
+ 
++        /* We know this was countable or we wouldn't be here.*/
++        p2m->stats.entries[i]--;
+         /* now install the newly split ept sub-tree */
+         /* NB: please make sure domian is paused and no in-fly VT-d DMA. */
+         atomic_write_ept_entry(ept_entry, split_ept_entry);
+@@ -445,9 +461,13 @@
+ 
+         ept_p2m_type_to_flags(&new_entry, p2mt, p2ma);
+ 
++        /* old_entry will be handled by ept_free_entry below */
++        if ( is_epte_countable(&new_entry) )
++            p2m->stats.entries[i]++;
++
+         atomic_write_ept_entry(ept_entry, new_entry);
+     }
+-
++ 
+     /* Track the highest gfn for which we have ever had a valid mapping */
+     if ( mfn_valid(mfn_x(mfn)) &&
+          (gfn + (1UL << order) - 1 > p2m->max_mapped_pfn) )
+diff -r c280d86f64ef xen/arch/x86/mm/p2m.c
+--- a/xen/arch/x86/mm/p2m.c	Mon Apr 18 11:56:07 2011 +0100
++++ b/xen/arch/x86/mm/p2m.c	Tue May 03 17:21:12 2011 +0100
+@@ -177,11 +177,15 @@
+ {
+     /* End if the entry is a leaf entry. */
+     if ( page_order == 0
+-         || !(l1e_get_flags(*p2m_entry) & _PAGE_PRESENT)
++         || !(l1e_get_flags(*p2m_entry) & _PAGE_PRESENT) 
+          || (l1e_get_flags(*p2m_entry) & _PAGE_PSE) )
++    {
++        if ( l1e_get_flags(*p2m_entry) )
++            p2m->stats.entries[page_order/9]--;
+         return;
+-
+-    if ( page_order > 9 )
++    }
++
++    if ( page_order )
+     {
+         l1_pgentry_t *l3_table = map_domain_page(l1e_get_pfn(*p2m_entry));
+         for ( int i = 0; i < L3_PAGETABLE_ENTRIES; i++ )
+@@ -222,6 +226,7 @@
+         new_entry = l1e_from_pfn(mfn_x(page_to_mfn(pg)),
+                                  __PAGE_HYPERVISOR | _PAGE_USER);
+ 
++        /* Stats: Empty entry, no mods needed */
+         switch ( type ) {
+         case PGT_l3_page_table:
+             paging_write_p2m_entry(p2m->domain, gfn,
+@@ -264,12 +269,15 @@
+         for ( i = 0; i < L2_PAGETABLE_ENTRIES; i++ )
+         {
+             new_entry = l1e_from_pfn(pfn + (i * L1_PAGETABLE_ENTRIES), flags);
++            p2m->stats.entries[1]++;
+             paging_write_p2m_entry(p2m->domain, gfn,
+                                    l1_entry+i, *table_mfn, new_entry, 2);
+         }
+         unmap_domain_page(l1_entry);
+         new_entry = l1e_from_pfn(mfn_x(page_to_mfn(pg)),
+                                  __PAGE_HYPERVISOR|_PAGE_USER); //disable PSE
++        /* Stats: Will count PoD */
++        p2m->stats.entries[2]--;
+         paging_write_p2m_entry(p2m->domain, gfn,
+                                p2m_entry, *table_mfn, new_entry, 3);
+     }
+@@ -298,6 +306,7 @@
+         for ( i = 0; i < L1_PAGETABLE_ENTRIES; i++ )
+         {
+             new_entry = l1e_from_pfn(pfn + i, flags);
++            p2m->stats.entries[0]++;
+             paging_write_p2m_entry(p2m->domain, gfn,
+                                    l1_entry+i, *table_mfn, new_entry, 1);
+         }
+@@ -305,6 +314,7 @@
+         
+         new_entry = l1e_from_pfn(mfn_x(page_to_mfn(pg)),
+                                  __PAGE_HYPERVISOR|_PAGE_USER);
++        p2m->stats.entries[1]--;
+         paging_write_p2m_entry(p2m->domain, gfn,
+                                p2m_entry, *table_mfn, new_entry, 2);
+     }
+@@ -813,6 +823,15 @@
+ void
+ p2m_pod_dump_data(struct p2m_domain *p2m)
+ {
++    int i;
++    long entries;
++    printk("    P2M entry stats:\n");
++    for ( i=0; i<3; i++)
++        if ( (entries=p2m->stats.entries[i]) )
++            printk("     L%d: %8ld entries, %ld bytes\n",
++                   i+1,
++                   entries,
++                   entries<<(i*9+12));
+     printk("    PoD entries=%d cachesize=%d\n",
+            p2m->pod.entry_count, p2m->pod.count);
+ }
+@@ -1369,6 +1388,13 @@
+                            p2m_type_to_flags(p2mt, mfn) | _PAGE_PSE)
+             : l3e_empty();
+         entry_content.l1 = l3e_content.l3;
++        
++        /* Adjust count for present/not-present entries added */
++        if ( l1e_get_flags(*p2m_entry) )
++            p2m->stats.entries[page_order/9]--;
++        if ( l1e_get_flags(entry_content) )
++            p2m->stats.entries[page_order/9]++;
++
+         paging_write_p2m_entry(p2m->domain, gfn, p2m_entry,
+                                table_mfn, entry_content, 3);
+         /* NB: paging_write_p2m_entry() handles tlb flushes properly */
+@@ -1409,6 +1435,12 @@
+         else
+             entry_content = l1e_empty();
+         
++        /* Adjust count for present/not-present entries added */
++        if ( l1e_get_flags(*p2m_entry) )
++            p2m->stats.entries[page_order/9]--;
++        if ( l1e_get_flags(entry_content) )
++            p2m->stats.entries[page_order/9]++;
++
+         /* level 1 entry */
+         paging_write_p2m_entry(p2m->domain, gfn, p2m_entry,
+                                table_mfn, entry_content, 1);
+@@ -1438,8 +1470,14 @@
+                                        _PAGE_PSE);
+         else
+             l2e_content = l2e_empty();
+-        
+         entry_content.l1 = l2e_content.l2;
++
++        /* Adjust count for present/not-present entries added */
++        if ( l1e_get_flags(*p2m_entry) )
++            p2m->stats.entries[page_order/9]--;
++        if ( l1e_get_flags(entry_content) )
++            p2m->stats.entries[page_order/9]++;
++
+         paging_write_p2m_entry(p2m->domain, gfn, p2m_entry,
+                                table_mfn, entry_content, 2);
+         /* NB: paging_write_p2m_entry() handles tlb flushes properly */
+@@ -2579,6 +2617,8 @@
+                 continue;
+             }
+ 
++            /* STATS: Should change only type; no stats should need adjustment */
++
+             l2mfn = _mfn(l3e_get_pfn(l3e[i3]));
+             l2e = map_domain_page(l3e_get_pfn(l3e[i3]));
+             for ( i2 = 0; i2 < L2_PAGETABLE_ENTRIES; i2++ )
+diff -r c280d86f64ef xen/include/asm-x86/p2m.h
+--- a/xen/include/asm-x86/p2m.h	Mon Apr 18 11:56:07 2011 +0100
++++ b/xen/include/asm-x86/p2m.h	Tue May 03 17:21:12 2011 +0100
+@@ -259,6 +259,10 @@
+         unsigned         reclaim_single; /* Last gpfn of a scan */
+         unsigned         max_guest;    /* gpfn of max guest demand-populate */
+     } pod;
++
++    struct {
++        long entries[3]; 
++    } stats;
+ };
+ 
+ /* get host p2m table */

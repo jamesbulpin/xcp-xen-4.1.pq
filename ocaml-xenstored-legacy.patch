@@ -1,0 +1,22 @@
+diff -r 8f4b3cb264c0 mk/xen-4.1.spec.in
+--- a/mk/xen-4.1.spec.in	Fri Jan 20 17:55:00 2012 +0000
++++ b/mk/xen-4.1.spec.in	Fri Jan 20 17:56:45 2012 +0000
+@@ -103,6 +103,10 @@ rm -rf $RPM_BUILD_ROOT/usr/share/info
+ # Don't use the C xenstored
+ rm -f %{buildroot}%{_sbindir}/xenstored
+ 
++# Copy ocaml xenstored to legacy location until we can fix up the init scripts
++mkdir -p $RPM_BUILD_ROOT/opt/xensource/bin/
++cp -f %{buildroot}%{_sbindir}/oxenstored %{buildroot}/opt/xensource/bin/xenstored
++
+ rm -f %{buildroot}%{_includedir}/%{name}/COPYING
+ 
+ %ifarch x86_64
+@@ -169,6 +173,7 @@ rm -rf $RPM_BUILD_ROOT
+ %{_sysconfdir}/rc.d/init.d/*
+ /etc/xen/oxenstored.conf
+ /usr/sbin/oxenstored
++/opt/xensource/bin/xenstored
+ %{_sbindir}/xenwatchdogd
+ %{_sbindir}/xen-ringwatch
+ 

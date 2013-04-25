@@ -1,0 +1,37 @@
+# HG changeset patch
+# User Ian Campbell <ian.campbell@citrix.com>
+# Date 1310749975 -3600
+# Node ID 5e1032229546c2d5640dc05205303d91d78a92c3
+# Parent 1cec4c0399580fd3003fc6c6445b54092916b481
+pygrub: prefer Grub2 to Grub1
+
+If a VM image has grub2 installed it is likely the one we need to be using.
+
+Signed-off-by: Ian Campbell <ian.campbell@citrix.com>
+Acked-by: Ian Jackson <ian.jackson@eu.citrix.com>
+Committed-by: Ian Jackson <ian.jackson@eu.citrix.com>
+
+diff -r 1cec4c039958 tools/pygrub/src/pygrub
+--- a/tools/pygrub/src/pygrub
++++ b/tools/pygrub/src/pygrub
+@@ -394,15 +394,15 @@ class Grub:
+                            # fallbacks
+                            ["/efi/boot/elilo.conf", "/elilo.conf",])
+         else:
+-            cfg_list = map(lambda x: (x,grub.GrubConf.GrubConfigFile),
+-                           ["/boot/grub/menu.lst", "/boot/grub/grub.conf",
+-                            "/grub/menu.lst", "/grub/grub.conf"]) + \
+-                       map(lambda x: (x,grub.GrubConf.Grub2ConfigFile),
++            cfg_list = map(lambda x: (x,grub.GrubConf.Grub2ConfigFile),
+                            ["/boot/grub/grub.cfg", "/grub/grub.cfg",
+                             "/boot/grub2/grub.cfg", "/grub2/grub.cfg"]) + \
+                        map(lambda x: (x,grub.ExtLinuxConf.ExtLinuxConfigFile),
+                            ["/boot/isolinux/isolinux.cfg",
+-                            "/boot/extlinux.conf"])
++                            "/boot/extlinux.conf"]) + \
++                       map(lambda x: (x,grub.GrubConf.GrubConfigFile),
++                           ["/boot/grub/menu.lst", "/boot/grub/grub.conf",
++                            "/grub/menu.lst", "/grub/grub.conf"])
+ 
+         if not fs:
+             # set the config file and parse it

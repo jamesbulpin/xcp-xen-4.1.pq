@@ -1,0 +1,28 @@
+# HG changeset patch
+# User Frediano Ziglio <frediano.ziglio@citrix.com>
+# Date 1336394367 -3600
+# Node ID 8f1e0cc4a507a52a49a2eb7832a57ecc7e032dce
+# Parent  5097d77b057b7cb4ccf6d05923a960b562a74d03
+vgabios: Make Windows 8 support greater resolutions
+
+Apparently Windows 8 refuse to use any mode if has more than one page.
+
+Signed-off-by: Frediano Ziglio <frediano.ziglio@citrix.com>
+Committed-by: Keir Fraser <keir@xen.org>
+
+diff -r 5097d77b057b -r 8f1e0cc4a507 tools/firmware/vgabios/vbe.c
+--- a/tools/firmware/vgabios/vbe.c	Mon May 07 13:38:57 2012 +0100
++++ b/tools/firmware/vgabios/vbe.c	Mon May 07 13:39:27 2012 +0100
+@@ -944,9 +944,9 @@ Bit16u *AX;Bit16u CX; Bit16u ES;Bit16u D
+                     (size_64k > totalMemory))
+                   info.ModeAttributes &= ~VBE_MODE_ATTRIBUTE_SUPPORTED;
+ 
+-                if (using_lfb) {
+-                  info.NumberOfBanks = 1;
+-                }
++                /* Windows 8 require this to be 1! */
++                info.NumberOfBanks = 1;
++
+                 if (info.WinAAttributes & VBE_WINDOW_ATTRIBUTE_RELOCATABLE) {
+                   info.WinFuncPtr = 0xC0000000UL;
+                   *(Bit16u *)&(info.WinFuncPtr) = (Bit16u)(dispi_set_bank_farcall);

@@ -1,0 +1,12 @@
+diff -r 2310f861f7c8 tools/libxc/xenguest.h
+--- a/tools/libxc/xenguest.h	Fri May 04 11:38:28 2012 +0100
++++ b/tools/libxc/xenguest.h	Fri May 04 11:39:11 2012 +0100
+@@ -164,6 +164,8 @@
+                        unsigned int console_evtchn,
+                        unsigned long *console_mfn);
+ 
++#define XENGUEST_HAS_HVM_BUILD_ARGS 1
++
+ struct xc_hvm_build_args {
+     uint64_t mem_size;           /* Memory size in bytes. */
+     uint64_t mem_target;         /* Memory target in bytes. */

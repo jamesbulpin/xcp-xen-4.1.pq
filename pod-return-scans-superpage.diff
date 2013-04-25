@@ -1,0 +1,197 @@
+xen,pod: Check zero-check pages returned by the balloon driver
+
+When a gfn is passed back by the balloon driver to Xen, check
+to see if it's in a superpage; and if so, check to see if that
+page is zeroed, and if so reclaim it.
+
+This patch significantly reduces superpage fragmentation when
+running on a high number of vcpus and significant memory
+ballooning.
+
+Signed-off-by: George Dunlap <george.dunlap@eu.citrix.com>
+
+diff -r 3fc82a93bced xen/arch/x86/mm/p2m.c
+--- a/xen/arch/x86/mm/p2m.c	Wed Oct 05 16:37:22 2011 +0100
++++ b/xen/arch/x86/mm/p2m.c	Wed Oct 05 16:37:32 2011 +0100
+@@ -74,6 +74,7 @@ boolean_param("hap_2mb", opt_hap_2mb);
+ 
+ #define SUPERPAGE_PAGES (1UL << 9)
+ #define superpage_aligned(_x)  (((_x)&(SUPERPAGE_PAGES-1))==0)
++#define order_aligned(_x,_o)  (((_x)&((1<<(_o))-1))==0)
+ 
+ static unsigned long p2m_type_to_flags(p2m_type_t t, mfn_t mfn)
+ {
+@@ -767,6 +768,9 @@ p2m_pod_offline_or_broken_replace(struct
+     return;
+ }
+ 
++static int p2m_pod_zero_check_superpage(struct p2m_domain *p2m, unsigned long gfn);
++
++
+ /* This function is needed for two reasons:
+  * + To properly handle clearing of PoD entries
+  * + To "steal back" memory being freed for the PoD cache, rather than
+@@ -774,6 +778,9 @@ p2m_pod_offline_or_broken_replace(struct
+  *
+  * Once both of these functions have been completed, we can return and
+  * allow decrease_reservation() to handle everything else.
++ *
++ * Because the balloon driver races with the page scrubber, we also
++ * scan for zeroed superpages we can reclaim.
+  */
+ int
+ p2m_pod_decrease_reservation(struct domain *d,
+@@ -781,11 +788,16 @@ p2m_pod_decrease_reservation(struct doma
+                              unsigned int order)
+ {
+     int ret=0;
+-    int i;
++    int i, entry_size=0;
+     struct p2m_domain *p2m = p2m_get_hostp2m(d);
+ 
+     int steal_for_cache = 0;
+-    int pod = 0, nonpod = 0, ram = 0;
++    int nonpod = 0;
++#if 0
++    unsigned long gfn_aligned;
++
++    int nonpod = 0, ram = 0;
++#endif
+     
+ 
+     /* If we don't have any outstanding PoD entries, let things take their
+@@ -794,7 +806,8 @@ p2m_pod_decrease_reservation(struct doma
+         goto out;
+ 
+     /* Figure out if we need to steal some freed memory for our cache */
+-    steal_for_cache =  ( p2m->pod.entry_count > p2m->pod.count );
++    if ( p2m->pod.entry_count > p2m->pod.count )
++        steal_for_cache = ( p2m->pod.entry_count - p2m->pod.count );
+ 
+     p2m_lock(p2m);
+     audit_p2m(p2m, 1);
+@@ -802,7 +815,7 @@ p2m_pod_decrease_reservation(struct doma
+     if ( unlikely(d->is_dying) )
+         goto out_unlock;
+ 
+-    /* See what's in here. */
++#if 0
+     /* FIXME: Add contiguous; query for PSE entries? */
+     for ( i=0; i<(1<<order); i++)
+     {
+@@ -876,12 +889,105 @@ p2m_pod_decrease_reservation(struct doma
+         }
+     }    
+ 
++#else
++/*
++ * while(more pages to look at)
++ *  - Find the next page unit
++ *    - if req_decrease >= page_size
++ *         or page is zero
++ *       - Reclaim whole page
++ *    - else
++ *       - Reclaim req_decrease         
++ *       - break out of the loop
++ */
++    /* FIXME: Add contiguous; query for PSE entries? */
++    for ( i=0; i<(1<<order); i+=entry_size)
++    {
++        mfn_t mfn;
++        p2m_type_t t;
++        p2m_access_t a;
++        int l, entry_order;
++
++        /* See what's in here. */
++        mfn = p2m->get_entry(p2m, gpfn + i, &t, &a, &l, p2m_query);
++
++        /* NB: entry_size is used by the loop update; so if you change the
++         * level at which you're working (i.e., decide to work w/ 4k
++         * pages instead of a superpage), you must change entry_size
++         * so that the loop logic works right. */
++        entry_order = (l-1)*9;
++        entry_size = 1<<(entry_order);
++
++        /* If this is in a superpage and we need ram, try to nab it */
++        if ( steal_for_cache
++             && entry_order == 9
++             && p2m_is_ram(t)
++             && p2m_pod_zero_check_superpage(p2m, gpfn & ~(SUPERPAGE_PAGES-1)) )
++        {
++            /* Now we have a PoD entry to deal with; update
++             * steal_for_cache, and set entry_size to 0 so that we
++             * re-process the entry. */
++            entry_size=0;
++
++            /* Update steal_for_cache */
++            if ( p2m->pod.entry_count > p2m->pod.count )
++                steal_for_cache = ( p2m->pod.entry_count - p2m->pod.count );
++            else
++                steal_for_cache = 0;
++            
++            continue;
++        }
++
++        /* Switch to singleton pages if we don't want to reclaim the
++         * whole page, or if the start is not SP aligned.  Future
++         * iterations to this superpage frame will then be */
++        if ( entry_order > 0
++             && ( i + entry_size > (1<<order)
++                  || !superpage_aligned(gpfn + i) ) )
++        {
++            entry_order = 0;
++            entry_size = 1;
++        }
++
++        if ( t == p2m_populate_on_demand )
++        {
++            set_p2m_entry(p2m, gpfn+i, _mfn(INVALID_MFN), entry_order, p2m_invalid, p2m->default_access);
++            p2m->pod.entry_count-=(1<<entry_order); /* Lock: p2m */
++            BUG_ON(p2m->pod.entry_count < 0);
++        }
++        else if( p2m_is_ram(t) )
++        {
++            if ( steal_for_cache )
++            {
++                struct page_info *page;
++                
++                ASSERT(mfn_valid(mfn));
++                
++                page = mfn_to_page(mfn);
++                
++                set_p2m_entry(p2m, gpfn + i, _mfn(INVALID_MFN), entry_order,
++                              p2m_invalid, p2m->default_access);
++                set_gpfn_from_mfn(mfn_x(mfn), INVALID_M2P_ENTRY);
++                
++                p2m_pod_cache_add(p2m, page, entry_order);
++                
++                /* Update steal_for_cache */
++                if ( p2m->pod.entry_count > p2m->pod.count )
++                    steal_for_cache = ( p2m->pod.entry_count - p2m->pod.count );
++                else
++                    steal_for_cache = 0;
++            }
++            else
++                nonpod++;
++        }
++    }
++#endif
+     /* If there are no more non-PoD entries, tell decrease_reservation() that
+      * there's nothing left to do. */
+     if ( nonpod == 0 )
+         ret = 1;
+ 
+-out_entry_check:
++//out_entry_check:
+     /* If we've reduced our "liabilities" beyond our "assets", free some */
+     if ( p2m->pod.entry_count < p2m->pod.count )
+     {
+@@ -1040,6 +1146,8 @@ p2m_pod_zero_check_superpage(struct p2m_
+     p2m_pod_cache_add(p2m, mfn_to_page(mfn0), 9);
+     p2m->pod.entry_count += SUPERPAGE_PAGES;
+ 
++    ret = SUPERPAGE_PAGES;
++
+ out_reset:
+     if ( reset )
+         set_p2m_entry(p2m, gfn, mfn0, 9, type0, p2m->default_access);

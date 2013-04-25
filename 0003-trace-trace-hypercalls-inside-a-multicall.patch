@@ -1,0 +1,191 @@
+From 351e7dbc75dd51ff58ba5980979b05695790369e Mon Sep 17 00:00:00 2001
+From: David Vrabel <david.vrabel@citrix.com>
+Date: Fri, 11 May 2012 14:41:15 +0100
+Subject: [PATCH 3/3] trace: trace hypercalls inside a multicall
+
+Add a trace record for every hypercall inside a multicall.  These use
+a new event ID (with a different sub-class ) so they may be filtered
+out if only the calls into hypervisor are of interest.
+
+Signed-off-by: David Vrabel <david.vrabel@citrix.com>
+---
+ tools/xentrace/formats         |    1 +
+ tools/xentrace/xentrace_format |    3 ++-
+ xen/arch/x86/trace.c           |    2 +-
+ xen/common/compat/multicall.c  |   12 ++++++++++++
+ xen/common/multicall.c         |   16 ++++++++++++++++
+ xen/common/trace.c             |    6 +++---
+ xen/include/public/trace.h     |    4 +++-
+ xen/include/xen/trace.h        |    3 ++-
+ 8 files changed, 40 insertions(+), 7 deletions(-)
+
+diff -r 05b2531bfaa7 tools/xentrace/formats
+--- a/tools/xentrace/formats	Fri May 11 12:37:35 2012 +0100
++++ b/tools/xentrace/formats	Wed May 30 18:55:15 2012 +0100
+@@ -100,6 +100,7 @@ 0x0020110b  CPU%(cpu)d  %(tsc)d (+%(relt
+ 0x0020100c  CPU%(cpu)d  %(tsc)d (+%(reltsc)8d)  ptwr_emulation_pae  [ addr = 0x%(3)08x, eip = 0x%(4)08x, npte = 0x%(2)08x%(1)08x ]
+ 0x0020110c  CPU%(cpu)d  %(tsc)d (+%(reltsc)8d)  ptwr_emulation_pae  [ addr = 0x%(4)08x%(3)08x, rip = 0x%(6)08x%(5)08x, npte = 0x%(2)08x%(1)08x ]
+ 0x0020100d  CPU%(cpu)d  %(tsc)d (+%(reltsc)8d)  hypercall  [ op = 0x%(1)08x ]
++0x0020200e  CPU%(cpu)d  %(tsc)d (+%(reltsc)8d)    hypercall  [ op = 0x%(1)08x ]
+ 
+ 0x0040f001  CPU%(cpu)d  %(tsc)d (+%(reltsc)8d)  shadow_not_shadow                 [ gl1e = 0x%(2)08x%(1)08x, va = 0x%(3)08x, flags = 0x%(4)08x ]
+ 0x0040f101  CPU%(cpu)d  %(tsc)d (+%(reltsc)8d)  shadow_not_shadow                 [ gl1e = 0x%(2)08x%(1)08x, va = 0x%(4)08x%(3)08x, flags = 0x%(5)08x ]
+diff -r 05b2531bfaa7 tools/xentrace/xentrace_format
+--- a/tools/xentrace/xentrace_format	Fri May 11 12:37:35 2012 +0100
++++ b/tools/xentrace/xentrace_format	Wed May 30 18:55:15 2012 +0100
+@@ -112,6 +112,7 @@ last_tsc = [0]
+ 
+ TRC_TRACE_IRQ = 0x1f004
+ TRC_PV_HYPERCALL_V2 = 0x20100d
++TRC_PV_HYPERCALL_SUBCALL = 0x20100e
+ 
+ NR_VECTORS = 256
+ irq_measure = [{'count':0, 'tot_cycles':0, 'max_cycles':0}] * NR_VECTORS
+@@ -199,7 +200,7 @@ while not interrupted:
+             d3 = irq_measure[d1]['tot_cycles']
+             d4 = irq_measure[d1]['max_cycles']
+ 
+-        if event == TRC_PV_HYPERCALL_V2:
++        if event == TRC_PV_HYPERCALL_V2 or event == TRC_PV_HYPERCALL_SUBCALL:
+             # Mask off the argument present bits.
+             args[1] &= 0x000fffff
+ 
+diff -r 05b2531bfaa7 xen/arch/x86/trace.c
+--- a/xen/arch/x86/trace.c	Fri May 11 12:37:35 2012 +0100
++++ b/xen/arch/x86/trace.c	Wed May 30 18:55:15 2012 +0100
+@@ -37,7 +37,7 @@ asmlinkage void trace_hypercall(void)
+         args[5] = regs->r9;
+     }
+ 
+-    __trace_hypercall(regs->eax, args);
++    __trace_hypercall(TRC_PV_HYPERCALL_V2, regs->eax, args);
+ }
+ 
+ void __trace_pv_trap(int trapnr, unsigned long eip,
+diff -r 05b2531bfaa7 xen/common/compat/multicall.c
+--- a/xen/common/compat/multicall.c	Fri May 11 12:37:35 2012 +0100
++++ b/xen/common/compat/multicall.c	Wed May 30 18:55:15 2012 +0100
+@@ -5,6 +5,7 @@
+ #include <xen/config.h>
+ #include <xen/types.h>
+ #include <xen/multicall.h>
++#include <xen/trace.h>
+ 
+ #define COMPAT
+ typedef int ret_t;
+@@ -25,6 +26,17 @@ DEFINE_XEN_GUEST_HANDLE(multicall_entry_
+ #define do_multicall(l, n)   compat_multicall(_##l, n)
+ #define _XEN_GUEST_HANDLE(t) XEN_GUEST_HANDLE(t)
+ 
++static void __trace_multicall_call(multicall_entry_t *call)
++{
++    unsigned long args[6];
++    int i;
++
++    for ( i = 0; i < ARRAY_SIZE(args); i++ )
++        args[i] = call->args[i];
++
++    __trace_hypercall(TRC_PV_HYPERCALL_SUBCALL, call->op, args);
++}
++
+ #include "../multicall.c"
+ 
+ /*
+diff -r 05b2531bfaa7 xen/common/multicall.c
+--- a/xen/common/multicall.c	Fri May 11 12:37:35 2012 +0100
++++ b/xen/common/multicall.c	Wed May 30 18:55:15 2012 +0100
+@@ -11,14 +11,28 @@
+ #include <xen/multicall.h>
+ #include <xen/guest_access.h>
+ #include <xen/perfc.h>
++#include <xen/trace.h>
+ #include <asm/current.h>
+ #include <asm/hardirq.h>
+ 
+ #ifndef COMPAT
+ typedef long ret_t;
+ #define xlat_multicall_entry(mcs)
++
++static void __trace_multicall_call(multicall_entry_t *call)
++{
++    __trace_hypercall(TRC_PV_HYPERCALL_SUBCALL, call->op, call->args);
++}
+ #endif
+ 
++static void trace_multicall_call(multicall_entry_t *call)
++{
++    if ( !tb_init_done )
++        return;
++
++    __trace_multicall_call(call);
++}
++
+ ret_t
+ do_multicall(
+     XEN_GUEST_HANDLE(multicall_entry_t) call_list, unsigned int nr_calls)
+@@ -43,6 +57,8 @@ do_multicall(
+         if ( unlikely(__copy_from_guest(&mcs->call, call_list, 1)) )
+             goto fault;
+ 
++        trace_multicall_call(&mcs->call);
++
+         do_multicall_call(&mcs->call);
+ 
+ #ifndef NDEBUG
+diff -r 05b2531bfaa7 xen/common/trace.c
+--- a/xen/common/trace.c	Fri May 11 12:37:35 2012 +0100
++++ b/xen/common/trace.c	Wed May 30 18:55:15 2012 +0100
+@@ -770,7 +770,8 @@ unlock:
+         tasklet_schedule(&trace_notify_dom0_tasklet);
+ }
+ 
+-void __trace_hypercall(unsigned long op, const unsigned long *args)
++void __trace_hypercall(uint32_t event, unsigned long op,
++                       const unsigned long *args)
+ {
+     struct {
+         uint32_t op;
+@@ -811,8 +812,7 @@ void __trace_hypercall(unsigned long op,
+         break;
+     }
+ 
+-    __trace_var(TRC_PV_HYPERCALL_V2, 1,
+-                sizeof(uint32_t) * (1 + (a - d.args)), &d);
++    __trace_var(event, 1, sizeof(uint32_t) * (1 + (a - d.args)), &d);
+ }
+ 
+ /*
+diff -r 05b2531bfaa7 xen/include/public/trace.h
+--- a/xen/include/public/trace.h	Fri May 11 12:37:35 2012 +0100
++++ b/xen/include/public/trace.h	Wed May 30 18:55:15 2012 +0100
+@@ -94,7 +94,8 @@
+ #define TRC_MEM_POD_ZERO_RECLAIM    (TRC_MEM + 17)
+ #define TRC_MEM_POD_SUPERPAGE_SPLINTER (TRC_MEM + 18)
+ 
+-#define TRC_PV_ENTRY 0x00201000 /* Hypervisor entry points for PV guests. */
++#define TRC_PV_ENTRY   0x00201000 /* Hypervisor entry points for PV guests. */
++#define TRC_PV_SUBCALL 0x00202000 /* Sub-call in a multicall hypercall */
+ 
+ #define TRC_PV_HYPERCALL             (TRC_PV_ENTRY +  1)
+ #define TRC_PV_TRAP                  (TRC_PV_ENTRY +  3)
+@@ -108,6 +109,7 @@
+ #define TRC_PV_PTWR_EMULATION        (TRC_PV_ENTRY + 11)
+ #define TRC_PV_PTWR_EMULATION_PAE    (TRC_PV_ENTRY + 12)
+ #define TRC_PV_HYPERCALL_V2          (TRC_PV_ENTRY + 13)
++#define TRC_PV_HYPERCALL_SUBCALL     (TRC_PV_SUBCALL + 14)
+ 
+ /*
+  * TRC_PV_HYPERCALL_V2 format
+diff -r 05b2531bfaa7 xen/include/xen/trace.h
+--- a/xen/include/xen/trace.h	Fri May 11 12:37:35 2012 +0100
++++ b/xen/include/xen/trace.h	Wed May 30 18:55:15 2012 +0100
+@@ -45,7 +45,8 @@ static inline void trace_var(u32 event, 
+         __trace_var(event, cycles, extra, extra_data);
+ }
+ 
+-void __trace_hypercall(unsigned long call, const unsigned long *args);
++void __trace_hypercall(uint32_t event, unsigned long op,
++                       const unsigned long *args);
+ 
+ /* Convenience macros for calling the trace function. */
+ #define TRACE_0D(_e)                            \

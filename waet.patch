@@ -1,0 +1,127 @@
+# HG changeset patch
+# Parent 63475f0d4197b82bd7d12c8a89312f1f92b67fe3
+
+Add the WAET since Microsoft are demanding it for Windows 8
+
+Signed-off-by: Paul Durrant <paul.durrant@citrix.com>
+
+diff -r 63475f0d4197 tools/firmware/hvmloader/acpi/acpi2_0.h
+--- a/tools/firmware/hvmloader/acpi/acpi2_0.h	Fri Jun 24 18:14:04 2011 +0100
++++ b/tools/firmware/hvmloader/acpi/acpi2_0.h	Fri Jun 24 18:19:17 2011 +0100
+@@ -298,6 +298,14 @@ struct acpi_20_hpet {
+ #define ACPI_HPET_ADDRESS 0xFED00000UL
+ 
+ /*
++ * WAET Description Table
++ */
++struct acpi_20_waet {
++    struct acpi_header header;
++    uint32_t           flags;
++};
++
++/*
+  * Multiple APIC Flags.
+  */
+ #define ACPI_PCAT_COMPAT (1 << 0)
+@@ -367,6 +375,7 @@ struct acpi_20_madt_intsrcovr {
+ #define ACPI_2_0_XSDT_SIGNATURE ASCII32('X','S','D','T')
+ #define ACPI_2_0_TCPA_SIGNATURE ASCII32('T','C','P','A')
+ #define ACPI_2_0_HPET_SIGNATURE ASCII32('H','P','E','T')
++#define ACPI_2_0_WAET_SIGNATURE ASCII32('W','A','E','T')
+ 
+ /*
+  * Table revision numbers.
+@@ -378,6 +387,7 @@ struct acpi_20_madt_intsrcovr {
+ #define ACPI_2_0_XSDT_REVISION 0x01
+ #define ACPI_2_0_TCPA_REVISION 0x02
+ #define ACPI_2_0_HPET_REVISION 0x01
++#define ACPI_2_0_WAET_REVISION 0x01
+ #define ACPI_1_0_FADT_REVISION 0x01
+ 
+ #pragma pack ()
+diff -r 63475f0d4197 tools/firmware/hvmloader/acpi/build.c
+--- a/tools/firmware/hvmloader/acpi/build.c	Fri Jun 24 18:14:04 2011 +0100
++++ b/tools/firmware/hvmloader/acpi/build.c	Fri Jun 24 18:19:17 2011 +0100
+@@ -33,6 +33,7 @@ extern struct acpi_20_rsdt Rsdt;
+ extern struct acpi_20_xsdt Xsdt;
+ extern struct acpi_20_fadt Fadt;
+ extern struct acpi_20_facs Facs;
++extern struct acpi_20_waet Waet;
+ 
+ /*
+  * Alternative DSDTs we get linked against. A cover-all DSDT for up to the
+@@ -171,11 +172,24 @@ static int construct_hpet(struct acpi_20
+     return offset;
+ }
+ 
++static int construct_waet(struct acpi_20_waet *waet)
++{
++    int offset;
++
++    memcpy(waet, &Waet, sizeof(*waet));
++    offset = sizeof(*waet);
++
++    set_checksum(waet, offsetof(struct acpi_header, checksum), offset);
++
++    return offset;
++}
++
+ static int construct_secondary_tables(uint8_t *buf, unsigned long *table_ptrs)
+ {
+     int offset = 0, nr_tables = 0;
+     struct acpi_20_madt *madt;
+     struct acpi_20_hpet *hpet;
++    struct acpi_20_waet *waet;
+     struct acpi_20_tcpa *tcpa;
+     static const uint16_t tis_signature[] = {0x0001, 0x0001, 0x0001};
+     uint16_t *tis_hdr;
+@@ -197,6 +211,11 @@ static int construct_secondary_tables(ui
+         table_ptrs[nr_tables++] = (unsigned long)hpet;
+     }
+ 
++    /* WAET. */
++    waet = (struct acpi_20_waet *)&buf[offset];
++    offset += construct_waet(waet);
++    table_ptrs[nr_tables++] = (unsigned long)waet;
++
+     if ( battery_port_exists() ) 
+     {
+         table_ptrs[nr_tables++] = (unsigned long)&buf[offset];
+diff -r 63475f0d4197 tools/firmware/hvmloader/acpi/static_tables.c
+--- a/tools/firmware/hvmloader/acpi/static_tables.c	Fri Jun 24 18:14:04 2011 +0100
++++ b/tools/firmware/hvmloader/acpi/static_tables.c	Fri Jun 24 18:19:17 2011 +0100
+@@ -129,7 +129,6 @@ struct acpi_20_xsdt Xsdt = {
+     }
+ };
+ 
+-
+ struct acpi_20_rsdp Rsdp = {
+     .signature = ACPI_2_0_RSDP_SIGNATURE,
+     .oem_id    = ACPI_OEM_ID,
+@@ -137,6 +136,26 @@ struct acpi_20_rsdp Rsdp = {
+     .length    = sizeof(struct acpi_20_rsdp)
+ };
+ 
++#define ACPI_WAET_RTC_GOOD      0x00000001
++#define ACPI_WAET_PM_TIMER_GOOD 0x00000002
++
++#define ACPI_WAET_FLAGS (ACPI_WAET_RTC_GOOD | \
++                         ACPI_WAET_PM_TIMER_GOOD)
++
++struct acpi_20_waet Waet = {
++    .header = {
++        .signature    = ACPI_2_0_WAET_SIGNATURE,
++        .length       = sizeof(struct acpi_20_waet),
++        .revision     = ACPI_2_0_WAET_REVISION,
++        .oem_id       = ACPI_OEM_ID, 
++        .oem_table_id = ACPI_OEM_TABLE_ID,
++        .oem_revision = ACPI_OEM_REVISION,
++        .creator_id   = ACPI_CREATOR_ID,
++        .creator_revision = ACPI_CREATOR_REVISION
++    },
++    .flags = ACPI_WAET_FLAGS
++};
++
+ /*
+  * Local variables:
+  * mode: C

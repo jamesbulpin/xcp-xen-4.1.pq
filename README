@@ -1,0 +1,78 @@
+XenServer Xen-4.0 patchqueue
+============================
+
+ This directory contains local patches against Xen 4.0 that are needed
+ for the product builds.  The underlying repository, xen-4.0.hg, is a
+ clone of upstream xen-4.0-testing.hg, which will be updated from time
+ to time. 
+
+ Some build changes from upstream, and from previous product trees:
+ - The python tool chain (xm, xend, etc) is no longer built,
+   except for the libxc bindings and pygrub;
+ - The various security framework tools are no longer built;
+ - Qemu-dm is now built from a separate repository;
+ - Debian linux kernels are now built from a separate repository.
+
+Order of patches
+----------------
+
+ The series file is broken up into sections.  Please put new patches 
+ in the appropriate section, either at the end of the section or beside
+ other patches that cover a similar area.  The overall order is:
+
+ - backports from xen-4.0-testing (if any);
+ - backports from xen-unstable;
+ - patches that are intended to go upstream to unstable;
+ - changes to makefiles and build systems;
+ - libxc;
+ - dom0 tools (xenstore, pygrub, hotplug &c);
+ - HVM firmware (hvmloader, BIOS images);
+ - xen;
+ - xentrace.
+
+
+Naming patches
+--------------
+
+ Please give your patch a name that describes what it does.
+
+ If the patch is a fix for a Jira ticket, it's not necessary to put the
+ CA- number in the file name, but you should put it in the commit
+ message so that the Jira/Mercurial plugin will associate it with the
+ ticket, and in the comment at the head of the patch.
+
+ If the patch is intended to go upstream to unstable then
+ please include a proposed changelog entry and Signed-off-by: line
+ suitable for those trees at the head of the patch file.
+
+
+Fixes to existing patches
+-------------------------
+
+ If you are making a fix to code that has a patch already in the queue, 
+ please don't add a new "fix-feature-foo" patch; instead, update the 
+ existing patch with the fix. 
+
+ One exception: if you're temporarily disabling a feature, it's OK 
+ to add a "disable-feature-foo" patch, since that will usually be less
+ work than removing the original feature from the queue.  Please 
+ put such patches immediately after the patch they disable so it's 
+ clear what's going on.
+
+
+Back-porting from xen-unstable or xen-4.0-testing
+-------------------------------------------------
+
+ The primary path for patches to come from xen-unstable is that they 
+ will be included in the underlying xen-4.0.hg tree once they are in 
+ xen-4.0-testing.  However, there will be some patches which are 
+ suitable for the product that are not suitable for the 4.0-testing
+ tree, and towards a release we may want to cherry-pick from 4.0-testing
+ instead of updating the underlying 4.0 tree.  When pulling such patches
+ into this queue, please:
+ - put them in the correct section of the series file, in the
+   right order relative to other patches from the same tree; and
+ - stick to the naming scheme.  A correctly named patch can be 
+   generated with the following command:
+   
+   hg export -o <path to repo>/'%b-%R.%h' <revision number>

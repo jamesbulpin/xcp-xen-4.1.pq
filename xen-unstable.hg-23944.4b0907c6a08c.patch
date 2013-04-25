@@ -1,0 +1,72 @@
+# HG changeset patch
+# User Guido Gunther <agx@sigxcpu.org>
+# Date 1318330978 -3600
+# Node ID 4b0907c6a08c348962bd976c2976257b412408be
+# Parent  1185ae04b5aad429fd68d1872f404791df627965
+pygrub: add debug flag
+
+Debugging config file errors is tedious so help a bit by not silently
+dropping parsing exceptions when --debug is given. Also intialize the
+logging API at debug level in this case.
+
+Signed-off-by: Guido Gunther <agx@sigxcpu.org>
+Acked-by: Ian Campbell <ian.campbell@citrix.com>
+Committed-by: Ian Jackson <ian.jackson@eu.citrix.com>
+
+diff -r 1185ae04b5aa -r 4b0907c6a08c tools/pygrub/src/pygrub
+--- a/tools/pygrub/src/pygrub
++++ b/tools/pygrub/src/pygrub
+@@ -13,7 +13,7 @@
+ # Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ #
+ 
+-import os, sys, string, struct, tempfile, re
++import os, sys, string, struct, tempfile, re, traceback
+ import copy
+ import logging
+ import platform
+@@ -665,7 +665,7 @@ if __name__ == "__main__":
+                                    ["quiet", "interactive", "not-really", "help", 
+                                     "output=", "output-format=", "output-directory=",
+                                     "entry=", "kernel=", 
+-                                    "ramdisk=", "args=", "isconfig"])
++                                    "ramdisk=", "args=", "isconfig", "debug"])
+     except getopt.GetoptError:
+         usage()
+         sys.exit(1)
+@@ -679,6 +679,7 @@ if __name__ == "__main__":
+     entry = None
+     interactive = True
+     isconfig = False
++    debug = False
+     not_really = False
+     output_format = "sxp"
+     output_directory = "/var/run/xend/boot"
+@@ -714,6 +715,8 @@ if __name__ == "__main__":
+             interactive = False
+         elif o in ("--isconfig",):
+             isconfig = True
++        elif o in ("--debug",):
++            debug = True
+         elif o in ("--output-format",):
+             if a not in ["sxp", "simple", "simple0"]:
+                 print "unkonwn output format %s" % a
+@@ -723,6 +726,9 @@ if __name__ == "__main__":
+         elif o in ("--output-directory",):
+             output_directory = a
+ 
++    if debug:
++	logging.basicConfig(level=logging.DEBUG)
++
+     if output is None or output == "-":
+         fd = sys.stdout.fileno()
+     else:
+@@ -769,6 +775,8 @@ if __name__ == "__main__":
+         except:
+             # IOErrors raised by fsimage.open
+             # RuntimeErrors raised by run_grub if no menu.lst present
++            if debug:
++		traceback.print_exc()
+             fs = None
+             continue
+ 
